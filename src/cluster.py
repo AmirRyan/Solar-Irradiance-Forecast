@@ -20,8 +20,9 @@ import config
 
 # Daily weather descriptors used to define regimes (all same-day values —
 # fine here because regimes describe the day being evaluated, they are not
-# predictive features).
-REGIME_INPUT_COLS = ["clearness_index_lag1", "CLOUD_AMT_lag1", "T2M_lag1", "doy_cos"]
+# predictive features). CLOUD_AMT was dropped from the fetch (see config.py);
+# cloudiness is represented by the clearness index instead.
+REGIME_INPUT_COLS = ["clearness_index_lag1", "T2M_lag1", "doy_cos"]
 
 
 class RegimeClusterer:
@@ -44,8 +45,8 @@ class RegimeClusterer:
 
     def _name_clusters(self, df: pd.DataFrame) -> None:
         """Map anonymous cluster ids to human regime names using cluster
-        characteristics: high clearness -> Clear Sky, high cloud -> Overcast,
-        low irradiance + winter -> Winter Low, remainder -> Transitional.
+        characteristics: high clearness -> Clear Sky, low clearness ->
+        Overcast, winter timing -> Winter Low, remainder -> Transitional.
         Heuristic — inspect and adjust once real data is flowing."""
         X = self.scaler.transform(df[REGIME_INPUT_COLS])
         ids = self.kmeans.predict(X)
@@ -58,7 +59,7 @@ class RegimeClusterer:
         self.label_map[clear] = "Clear Sky"
         remaining.discard(clear)
 
-        overcast = stats.loc[list(remaining), "CLOUD_AMT_lag1"].idxmax()
+        overcast = stats.loc[list(remaining), "clearness_index_lag1"].idxmin()
         self.label_map[overcast] = "Overcast"
         remaining.discard(overcast)
 

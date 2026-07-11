@@ -25,7 +25,11 @@ NASA_POWER_PARAMETERS = [
     "RH2M",                # relative humidity at 2m
     "WS2M",                # wind speed at 2m
     "PRECTOTCORR",         # precipitation
-    "CLOUD_AMT",           # cloud amount
+    # CLOUD_AMT deliberately excluded: it is a valid RE parameter but is
+    # CERES-derived and lags ~3 months behind the other (near-real-time)
+    # parameters, which would silently drop the most recent ~100 days of
+    # every location's history. Cloudiness is captured via the clearness
+    # index (ALLSKY / CLRSKY) instead.
 ]
 HISTORY_START = "20150101"  # ~10 years of daily history per location
 TARGET_COL = "ALLSKY_SFC_SW_DWN"
@@ -36,17 +40,16 @@ TARGET_COL = "ALLSKY_SFC_SW_DWN"
 LAG_DAYS = [1, 2, 3, 7, 14]
 ROLLING_WINDOWS = [3, 7, 30]
 
+# Exogenous weather drivers, used as lag-1 features (data.py builds these)
+EXOG_COLS = ["T2M", "RH2M", "WS2M", "PRECTOTCORR"]
+
 FEATURES = (
     [f"{TARGET_COL}_lag{l}" for l in LAG_DAYS]
     + [f"{TARGET_COL}_roll{w}_mean" for w in ROLLING_WINDOWS]
     + [f"{TARGET_COL}_roll{w}_std" for w in ROLLING_WINDOWS]
+    + ["clearness_index_lag1"]   # ALLSKY / CLRSKY, lagged (no leakage)
+    + [f"{c}_lag1" for c in EXOG_COLS]
     + [
-        "clearness_index_lag1",  # ALLSKY / CLRSKY, lagged (no leakage)
-        "T2M_lag1",
-        "RH2M_lag1",
-        "WS2M_lag1",
-        "PRECTOTCORR_lag1",
-        "CLOUD_AMT_lag1",
         "doy_sin",               # seasonal encodings
         "doy_cos",
     ]

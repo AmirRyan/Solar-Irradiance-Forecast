@@ -82,7 +82,7 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     clearness = (out[config.TARGET_COL] / out["CLRSKY_SFC_SW_DWN"]).clip(0, 1.2)
     out["clearness_index_lag1"] = clearness.shift(1)
 
-    for col in ["T2M", "RH2M", "WS2M", "PRECTOTCORR", "CLOUD_AMT"]:
+    for col in config.EXOG_COLS:
         out[f"{col}_lag1"] = out[col].shift(1)
 
     doy = out.index.dayofyear
