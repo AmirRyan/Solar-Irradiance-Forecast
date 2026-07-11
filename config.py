@@ -60,13 +60,19 @@ FEATURES = (
 # ---------------------------------------------------------------------------
 QUANTILES = [0.1, 0.5, 0.9]  # P10 / P50 / P90
 
-# OPEN QUESTION (see CLAUDE.md): tuned once on demo locations in week 2, then
-# reused fixed at inference. The "fits in seconds" claim depends on this.
+# Tuned ONCE by src/tune.py (80-trial random search, val-split pinball on the
+# demo locations, 2026-07-11) and reused fixed at inference — never retuned
+# per location; the "fits in seconds" claim depends on this. Val pinball
+# 0.2115 -> 0.1991 vs the previous hand-picked params; the strong
+# regularization is what fixed the P10-P90 undercoverage (0.665 -> 0.785 val).
 LGBM_PARAMS = {
-    "n_estimators": 400,
-    "learning_rate": 0.05,
-    "num_leaves": 31,
-    "min_child_samples": 20,
+    "num_leaves": 8,
+    "min_child_samples": 47,
+    "learning_rate": 0.01574834597749413,
+    "n_estimators": 805,
+    "colsample_bytree": 0.74442301806463,
+    "reg_alpha": 9.011173123401376,
+    "reg_lambda": 0.006592641307912177,
     "verbosity": -1,
 }
 
