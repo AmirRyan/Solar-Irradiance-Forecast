@@ -6,6 +6,8 @@ click, preset, or manual entry) and get a next-day P10/P50/P90 forecast fit
 on that location's own history — with baselines, uncertainty bands, weather-
 regime error analysis, and SHAP explanations.
 
+![Dashboard: Bristol forecast with P10–P90 band, regime coloring, and SHAP panel](docs/dashboard.png)
+
 ## How it works
 
 - **Per-location fetch-and-fit:** on request, the app fetches (and caches)
@@ -25,14 +27,19 @@ regime error analysis, and SHAP explanations.
 ## Quickstart
 
 ```bash
-pip install -r requirements.txt
+pip install -r requirements.txt   # macOS: also `brew install libomp` for LightGBM
 
 # Warm the cache + fit models for the demo locations, print metrics
 python -m src.train
 
-# Launch the web app
+# Launch the web app at http://127.0.0.1:8050
 python dashboard/app.py
 ```
+
+The dashboard labels its uncertainty band honestly: it is the model's
+P10–P90 quantile forecast, whose **measured** coverage on held-out data is
+~72–78% (nominal 80%) — shown in the caption and per-location coverage tile
+rather than marketed as an "80% confidence interval".
 
 ## Results
 
