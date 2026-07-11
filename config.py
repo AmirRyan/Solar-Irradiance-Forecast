@@ -82,6 +82,12 @@ SPLIT_FRACTIONS = (0.7, 0.15, 0.15)
 # Weather regimes (cluster.py maps cluster ids -> these labels)
 REGIME_NAMES = ["Clear Sky", "Overcast", "Transitional", "Winter Low"]
 N_REGIMES = len(REGIME_NAMES)
+# Where irradiance has no real seasonal cycle (equatorial locations), the
+# "Winter Low" label is replaced by this neutral one. The gate: relative
+# amplitude of monthly-mean irradiance, measured 0.91-2.05 at the demo
+# locations vs 0.37 at Nairobi — 0.6 splits with wide margin.
+REGIME_LOW_SEASONALITY_NAME = "Low Irradiance"
+SEASONAL_AMPLITUDE_THRESHOLD = 0.6
 
 # ---------------------------------------------------------------------------
 # Demo locations — pre-cached so a live demo never depends on API latency

@@ -52,7 +52,12 @@ class RegimeClusterer:
         """Map anonymous cluster ids to human regime names using cluster
         characteristics: high clearness -> Clear Sky, low clearness ->
         Overcast, winter timing -> Winter Low, remainder -> Transitional.
-        Heuristic — inspect and adjust once real data is flowing."""
+
+        "Winter Low" is gated on the location actually having a seasonal
+        irradiance cycle; equatorial locations (relative monthly amplitude
+        below config.SEASONAL_AMPLITUDE_THRESHOLD) get the neutral
+        "Low Irradiance" label for their lowest-clearness leftover cluster
+        instead of a meaningless winter reference."""
         X = self.scaler.transform(df[REGIME_INPUT_COLS])
         ids = self.kmeans.predict(X)
         stats = df[REGIME_INPUT_COLS].groupby(ids).mean()
@@ -68,9 +73,16 @@ class RegimeClusterer:
         self.label_map[overcast] = "Overcast"
         remaining.discard(overcast)
 
-        winter = stats.loc[list(remaining), "doy_cos"].idxmax()  # doy_cos peaks midwinter (Jan)
-        self.label_map[winter] = "Winter Low"
-        remaining.discard(winter)
+        monthly = df[config.TARGET_COL].groupby(df.index.month).mean()
+        amplitude = (monthly.max() - monthly.min()) / monthly.mean()
+        if amplitude >= config.SEASONAL_AMPLITUDE_THRESHOLD:
+            winter = stats.loc[list(remaining), "doy_cos"].idxmax()  # doy_cos peaks midwinter (Jan)
+            self.label_map[winter] = "Winter Low"
+            remaining.discard(winter)
+        else:
+            low = stats.loc[list(remaining), "clearness_index_lag1"].idxmin()
+            self.label_map[low] = config.REGIME_LOW_SEASONALITY_NAME
+            remaining.discard(low)
 
         for i in remaining:
             self.label_map[i] = "Transitional"
