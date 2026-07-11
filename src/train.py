@@ -11,9 +11,15 @@ src/pipeline.py — this file only orchestrates and reports.
 from __future__ import annotations
 
 import json
+import re
 
 import config
+from src.explain import save_global_importance_artifacts
 from src.pipeline import run_location
+
+
+def _slug(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
 
 
 def main() -> None:
@@ -32,6 +38,12 @@ def main() -> None:
               f"ridge={m['ridge_mae']:.3f}  gbm_p50={m['gbm_p50_mae']:.3f}")
         print("  Per-regime RMSE (P50):")
         print(result.regime_breakdown.to_string(index=False))
+
+        # SHAP artifacts (offline only — dashboard use is an open question)
+        csv_path, png_path = save_global_importance_artifacts(
+            result.gbm, result.test, config.ARTIFACTS_DIR, _slug(name)
+        )
+        print(f"  SHAP: {csv_path.name}, {png_path.name}")
 
         all_metrics[name] = m
 
