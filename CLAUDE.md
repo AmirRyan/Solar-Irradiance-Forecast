@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-No code exists in this repo yet — it is being built from scratch following the plan captured in this file. Update the Commands section once `requirements.txt`, `src/train.py`, and `dashboard/app.py` actually exist.
+Phase 1 (data + baselines) is implemented and verified against the real NASA POWER API: `src/train.py` runs end-to-end for the demo locations, the pipeline is location-agnostic, and a network-free test suite exists in `tests/`. Note: `CLOUD_AMT` was deliberately dropped from the fetched parameters — it is CERES-derived and lags ~3 months behind the near-real-time parameters (see `config.py`); cloudiness is captured via the clearness index instead.
 
 ## What this project is
 
@@ -14,18 +14,19 @@ A solo portfolio project: probabilistic solar irradiance forecasting using NASA 
 
 1. **Baselines** — persistence (naive) and Ridge. The floor every other model must beat.
 2. **Headline model** — LightGBM quantile regression predicting P10/P50/P90 irradiance, giving calibrated uncertainty. Fast to train, easy to iterate on.
-3. **Stretch model (week 4, conditional)** — a compact attention LSTM or Temporal Fusion Transformer-lite for multi-horizon forecasting, built as a classical-vs-deep-learning comparison. It does not need to beat LightGBM to be a useful result.
+3. **Stretch model (conditional)** — a compact attention LSTM or Temporal Fusion Transformer-lite for multi-horizon forecasting, built as a classical-vs-deep-learning comparison. It does not need to beat LightGBM to be a useful result.
 4. **Weather regime clustering (KMeans/GMM)** — Clear Sky, Overcast, Transitional, Winter Low. An analysis layer for per-regime error breakdown, not a modeling input.
 5. **Interpretability** — SHAP feature importance and per-prediction explanations for the LightGBM model.
 6. **Web app** — Plotly Dash: location input, forecast vs. actual, uncertainty bands, regime coloring, residuals panel, loading state for new-location fetches.
 
-## Commands (once implemented)
+## Commands
 
-- `pip install -r requirements.txt` — install dependencies
-- `python -m src.train` — offline/batch runs: fits baselines + LightGBM + clustering for the pre-cached demo locations
-- `python dashboard/app.py` — launch the Plotly Dash web app
+- `pip install -r requirements.txt` — install dependencies (on macOS, LightGBM also needs `brew install libomp`)
+- `python -m src.train` — offline/batch runs: fits baselines + LightGBM + clustering for the pre-cached demo locations (hits the NASA POWER API on cache misses)
+- `python -m pytest tests/` — run the test suite (synthetic data only, no network); run from the repo root
+- `python dashboard/app.py` — launch the Plotly Dash web app (phase 3, not yet implemented)
 
-No test suite or linter is defined yet. Add this section once one exists — don't assume pytest/ruff/etc. without confirming.
+No linter is configured yet.
 
 ## Repo structure
 
@@ -45,6 +46,7 @@ solar-forecast/
 │   └── app.py             # Plotly Dash app: location input, calls pipeline.py, renders results
 ├── notebooks/
 │   └── eda.ipynb          # exploratory analysis, kept separate from production code
+├── tests/                 # network-free pytest suite (synthetic fixtures, see Testing conventions)
 ├── requirements.txt
 └── README.md              # problem framing, results, how to run
 ```
@@ -84,7 +86,7 @@ Lat/lon via map click or numeric entry, plus a preset dropdown of 5–8 notable 
 
 2–3 locations (Bristol plus one sunny and one cloudy climate) are kept pre-cached specifically so a live demo never depends on NASA POWER API latency.
 
-## Build schedule (4 weeks)
+## Build schedule
 
 **Phase 1 — Data + baselines.** `data.py` accepts arbitrary lat/lon and fetches/caches NASA POWER data. Feature engineering: lags, rolling stats, seasonal encodings. Train/val/test split. Persistence + Ridge baselines running end-to-end for the demo locations. Deliverable: a working, boring pipeline with a first RMSE number, provably location-agnostic (test it on two different locations).
 
@@ -93,6 +95,22 @@ Lat/lon via map click or numeric entry, plus a preset dropdown of 5–8 notable 
 **Phase 3 — Web app.** Plotly Dash: location input (map click + preset dropdown + manual lat/lon), forecast vs. actual, uncertainty bands, regime coloring, residuals, loading state for new-location fetches. This is the demoable artifact — prioritize finishing it over the stretch model. Deliverable: a working web app that can be screen-shared and used live.
 
 **Phase 4 — Stretch model + polish.** If on schedule: attention LSTM/TFT-lite as a comparison model, added to the dashboard as a second forecast line. If behind schedule: skip it and spend the week on README, error analysis writeup, and documentation. Decide which path *before* week 4 starts to avoid a last-minute scramble — both outcomes are acceptable.
+
+## NASA POWER API facts (hard-won — verified against the live API)
+
+- Daily/point endpoint response shape: values live at `properties.parameter.<PARAM>.<YYYYMMDD>`; the fill value for missing / not-yet-processed days is `-999.0`.
+- Near-real-time parameters (irradiance, T2M, etc.) lag ~5–7 days behind today; those trailing days arrive as `-999` and are dropped via the target-column dropna.
+- `CLOUD_AMT` is a valid RE-community parameter but is CERES-derived and lags **~3 months** — keeping it as a feature would silently drop the most recent ~100 days per location, which is why it was removed (cloudiness is captured by the clearness index).
+- All parsing of this payload lives in `data._parse_power_response` (a pure function, extracted so it is testable without the network). Don't re-handle `-999` elsewhere.
+
+## Testing conventions
+
+- **No network in any test.** Everything runs on synthetic data; the NASA POWER payload handling is tested by feeding handcrafted payload dicts (matching the real JSON shape above) to `data._parse_power_response`.
+- **Schemas derive from `config`, never hardcoded.** Fixtures and payload builders construct their columns from `config.NASA_POWER_PARAMETERS` and assert set-equality, so they fail loudly if the parameter list changes instead of passing against a stale schema.
+- **The `synthetic_raw` fixture is deliberately learnable** (seasonal clear-sky sine × cloudiness multiplier, fixed seed, ~6.5 years). The GBM coverage assertion depends on both the learnability and the size — small fixtures make the quantile models memorize the training set and read artificially low coverage.
+- **Leakage testing**: perturb every raw input column (parametrized) at a day t and assert all engineered feature rows ≤ t are unchanged — this catches un-lagged covariates and backward flow from future rows, and a failure names the leaking column.
+- `engineer_features` sorts its input defensively (contract pinned by `test_engineer_features_sorts_unsorted_input`).
+- Known calibration gap: the untuned `LGBM_PARAMS` undercover — real-data P10–P90 coverage is ~0.62–0.68 vs the 0.80 ideal. The coverage test's lower bound is 0.50 for this reason; tighten it after the phase-2 hyperparameter pass.
 
 ## Evaluation conventions
 
@@ -106,6 +124,4 @@ Lat/lon via map click or numeric entry, plus a preset dropdown of 5–8 notable 
 - **LightGBM hyperparameters**: tuned once (in phase 2, on demo locations) and reused fixed at inference, or retuned per new location? The "fits in seconds" claim only holds under the fixed-hyperparameter interpretation.
 - **Regime clustering fit strategy**: are KMeans/GMM regimes fit once on demo-location data and applied (predict) to new locations, or refit per-location on whatever's cached? Refitting on a single new location's limited history risks unstable clusters.
 - **Phase 4 go/no-go**: the stretch model is explicitly conditional — decide based on how phase 1–3 actually go, not now.
-
-## Current Status: 
 
