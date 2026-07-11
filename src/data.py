@@ -24,6 +24,20 @@ def _cache_path(lat: float, lon: float):
     return config.CACHE_DIR / f"power_{lat:.2f}_{lon:.2f}.parquet"
 
 
+def _parse_power_response(payload: dict) -> pd.DataFrame:
+    """Turn a NASA POWER daily/point JSON payload into a clean frame:
+    sorted DatetimeIndex, one column per parameter, -999 fill values
+    converted to NaN, and rows without a target value (trailing
+    not-yet-processed days) dropped."""
+    raw = payload["properties"]["parameter"]
+
+    df = pd.DataFrame({p: pd.Series(vals) for p, vals in raw.items()})
+    df.index = pd.to_datetime(df.index, format="%Y%m%d")
+    df = df.sort_index()
+    # NASA POWER uses -999 for missing / not-yet-available days
+    return df.replace(-999, np.nan).dropna(subset=[config.TARGET_COL])
+
+
 def fetch_history(lat: float, lon: float, force_refresh: bool = False) -> pd.DataFrame:
     """Return the daily NASA POWER history for a location, cached after the
     first request. Index: DatetimeIndex. Columns: config.NASA_POWER_PARAMETERS.
@@ -46,13 +60,7 @@ def fetch_history(lat: float, lon: float, force_refresh: bool = False) -> pd.Dat
         timeout=120,
     )
     resp.raise_for_status()
-    raw = resp.json()["properties"]["parameter"]
-
-    df = pd.DataFrame({p: pd.Series(vals) for p, vals in raw.items()})
-    df.index = pd.to_datetime(df.index, format="%Y%m%d")
-    df = df.sort_index()
-    # NASA POWER uses -999 for missing / not-yet-available days
-    df = df.replace(-999, np.nan).dropna(subset=[config.TARGET_COL])
+    df = _parse_power_response(resp.json())
 
     config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path)
@@ -67,8 +75,12 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
 
     All features are lagged or rolling-on-past-values only: predicting day t
     uses information available at the end of day t-1 (no leakage).
+
+    Sorts its input defensively — shift/rolling features are only correct on
+    a chronologically ordered frame, so the contract is total rather than
+    assuming callers pre-sort.
     """
-    out = df.copy()
+    out = df.sort_index()
     y = out[config.TARGET_COL]
 
     for l in config.LAG_DAYS:
