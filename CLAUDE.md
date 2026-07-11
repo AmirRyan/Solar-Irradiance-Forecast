@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Phase 1 (data + baselines) is implemented and verified against the real NASA POWER API: `src/train.py` runs end-to-end for the demo locations, the pipeline is location-agnostic, and a network-free test suite exists in `tests/`. Note: `CLOUD_AMT` was deliberately dropped from the fetched parameters — it is CERES-derived and lags ~3 months behind the near-real-time parameters (see `config.py`); cloudiness is captured via the clearness index instead.
+Phase 2 (headline model) is complete: `config.LGBM_PARAMS` holds hyperparameters tuned once by `src/tune.py` (val pinball −5.8%, P10–P90 test coverage 0.72–0.78 vs 0.62–0.68 before — no conformal step needed), regime clustering is resolved as refit-per-location, and `train.py` writes SHAP importance artifacts per demo location. Results tables live in README.md. Next up is phase 3 (the Dash web app). Note: `CLOUD_AMT` was deliberately dropped from the fetched parameters — it is CERES-derived and lags ~3 months behind the near-real-time parameters (see `config.py`); cloudiness is captured via the clearness index instead.
 
 ## What this project is
 
@@ -22,7 +22,8 @@ A solo portfolio project: probabilistic solar irradiance forecasting using NASA 
 ## Commands
 
 - `pip install -r requirements.txt` — install dependencies (on macOS, LightGBM also needs `brew install libomp`)
-- `python -m src.train` — offline/batch runs: fits baselines + LightGBM + clustering for the pre-cached demo locations (hits the NASA POWER API on cache misses)
+- `python -m src.train` — offline/batch runs: fits baselines + LightGBM + clustering for the pre-cached demo locations (hits the NASA POWER API on cache misses), writes metrics + SHAP artifacts to `artifacts/`
+- `python -m src.tune` — offline hyperparameter search (~35 min for 80 trials); winners are pasted into `config.LGBM_PARAMS` by hand. Run rarely — params are tuned once, not per location
 - `python -m pytest tests/` — run the test suite (synthetic data only, no network); run from the repo root
 - `python dashboard/app.py` — launch the Plotly Dash web app (phase 3, not yet implemented)
 
@@ -110,7 +111,7 @@ Lat/lon via map click or numeric entry, plus a preset dropdown of 5–8 notable 
 - **The `synthetic_raw` fixture is deliberately learnable** (seasonal clear-sky sine × cloudiness multiplier, fixed seed, ~6.5 years). The GBM coverage assertion depends on both the learnability and the size — small fixtures make the quantile models memorize the training set and read artificially low coverage.
 - **Leakage testing**: perturb every raw input column (parametrized) at a day t and assert all engineered feature rows ≤ t are unchanged — this catches un-lagged covariates and backward flow from future rows, and a failure names the leaking column.
 - `engineer_features` sorts its input defensively (contract pinned by `test_engineer_features_sorts_unsorted_input`).
-- Known calibration gap: the untuned `LGBM_PARAMS` undercover — real-data P10–P90 coverage is ~0.62–0.68 vs the 0.80 ideal. The coverage test's lower bound is 0.50 for this reason; tighten it after the phase-2 hyperparameter pass.
+- Calibration (resolved phase 2): the original hand-picked `LGBM_PARAMS` undercovered (~0.62–0.68 P10–P90 coverage); the tuned params (strong regularization, see `config.py`) measure 0.72–0.78 on the real demo locations + Nairobi and ~0.73 on the synthetic fixture — no conformal post-hoc step was needed. The coverage test's lower bound is 0.65; if coverage regresses below that, suspect a params change before suspecting the test.
 
 ## Evaluation conventions
 
@@ -121,7 +122,11 @@ Lat/lon via map click or numeric entry, plus a preset dropdown of 5–8 notable 
 ## Open design questions (resolve before building the relevant piece)
 
 - **Stretch model scope**: does `model_seq.py` ever run against on-demand/user-typed locations, or only against the pre-cached demo locations via `train.py`? Training an LSTM/TFT-lite per-request isn't feasible at interactive latency — this likely needs to be demo-locations-only, but confirm before wiring it into `dashboard/app.py`.
-- **LightGBM hyperparameters**: tuned once (in phase 2, on demo locations) and reused fixed at inference, or retuned per new location? The "fits in seconds" claim only holds under the fixed-hyperparameter interpretation.
-- **Regime clustering fit strategy**: are KMeans/GMM regimes fit once on demo-location data and applied (predict) to new locations, or refit per-location on whatever's cached? Refitting on a single new location's limited history risks unstable clusters.
+- **SHAP in the dashboard**: `train.py` saves SHAP importance artifacts offline for the demo locations. Whether SHAP also runs per-request for on-demand locations in the dashboard is a phase-3 latency question (TreeExplainer on ~600 test rows takes a few seconds) — decide when building `dashboard/app.py`; do not wire `explain.py` into `pipeline.py` before then.
 - **Phase 4 go/no-go**: the stretch model is explicitly conditional — decide based on how phase 1–3 actually go, not now.
+
+## Resolved design decisions (phase 2)
+
+- **LightGBM hyperparameters: tuned once, reused fixed.** `src/tune.py` (offline-only, like `train.py`) tuned on the demo locations' val splits; the winners live in `config.LGBM_PARAMS` and are reused unchanged for every location at inference. Do NOT add per-location tuning to `pipeline.py` — the "fits in seconds" latency claim depends on this.
+- **Regime clustering: refit per location.** Decided empirically (demo locations + off-preset Nairobi): fit-once on pooled demo data produced degenerate regimes (<20 test days) at 3 of 4 probe locations (Phoenix Transitional 10d, Bergen Clear Sky 16d, Nairobi Overcast 14d) and transferred nonsensically to the equatorial climate (326 of Nairobi's 612 test days labeled "Winter Low" with the *highest* mean irradiance — the pooled clusters lean on day-of-year, which inverts meaning at the equator). Refit-per-location was non-degenerate everywhere (min 50 test days/regime); ~10 years of history per location makes refits stable. Known limitation: the cluster-*naming* heuristic is location-relative and can misfire outside temperate climates (equatorial locations still get a "Winter Low" label) — candidate phase-3 polish.
 

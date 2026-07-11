@@ -36,14 +36,43 @@ python dashboard/app.py
 
 ## Results
 
-_TODO: fill in after week 2 — RMSE/MAE/pinball table with baselines alongside
-the LightGBM numbers, and the per-regime breakdown._
+Next-day forecasts on each location's held-out test set (~614–621 days,
+kWh/m²/day). LightGBM hyperparameters were tuned once on the demo locations'
+validation splits (`src/tune.py`) and reused fixed everywhere — baselines
+alongside every number.
+
+**Bristol, UK** (temperate/mixed)
 
 | Model | RMSE | MAE | Pinball (P10/P50/P90) |
 |---|---|---|---|
-| Persistence | – | – | – |
-| Ridge | – | – | – |
-| LightGBM (P50) | – | – | – |
+| Persistence | 1.139 | 0.798 | – |
+| Ridge | 0.922 | 0.698 | – |
+| LightGBM (P50) | 0.928 | **0.689** | 0.153 / 0.345 / 0.129 |
+
+**Phoenix, AZ, USA** (sunny/arid)
+
+| Model | RMSE | MAE | Pinball (P10/P50/P90) |
+|---|---|---|---|
+| Persistence | 0.864 | 0.512 | – |
+| Ridge | **0.740** | 0.507 | – |
+| LightGBM (P50) | 0.772 | **0.450** | 0.161 / 0.225 / 0.068 |
+
+**Bergen, Norway** (cloudy/wet)
+
+| Model | RMSE | MAE | Pinball (P10/P50/P90) |
+|---|---|---|---|
+| Persistence | 1.018 | 0.642 | – |
+| Ridge | 0.842 | 0.574 | – |
+| LightGBM (P50) | **0.835** | **0.535** | 0.117 / 0.268 / 0.116 |
+
+The quantile model's P10–P90 band covers 72–78% of test-set actuals across
+the demo locations (ideal: 80%), and the same fixed hyperparameters hold up
+off-preset — e.g. Nairobi (equatorial): LightGBM RMSE 0.783 vs Ridge 0.796
+vs persistence 0.930, with 77.5% band coverage. LightGBM's P50 optimizes
+absolute error, which is why it consistently wins MAE while Ridge stays
+competitive on RMSE. Per-regime RMSE breakdowns (the primary error-analysis
+lens) and SHAP feature-importance artifacts are written to `artifacts/` by
+`python -m src.train`.
 
 ## Repo layout
 
