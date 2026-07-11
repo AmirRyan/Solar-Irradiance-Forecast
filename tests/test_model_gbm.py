@@ -21,10 +21,10 @@ def test_quantiles_are_monotone_and_calibrated(synthetic_raw):
     assert not preds.isna().any().any()
 
     # Statistical check: ideally the P10-P90 band covers ~80% of actuals.
-    # The current untuned LGBM_PARAMS genuinely undercover — measured
-    # 0.62-0.68 on the real demo locations and ~0.55 on this fixture — so
-    # the lower bound is 0.50: it still catches collapse-to-median or
-    # degenerate bands. Tighten it after the phase-2 hyperparameter pass.
+    # With the phase-2 tuned LGBM_PARAMS this fixture measures 0.733 and the
+    # real demo locations 0.72-0.78, so the lower bound is 0.65 — loose
+    # enough not to flake, tight enough to catch a return of the
+    # undercoverage regression this tuning pass fixed.
     y = test[config.TARGET_COL]
     coverage = ((y >= preds["p10"]) & (y <= preds["p90"])).mean()
-    assert 0.50 <= coverage <= 0.95, f"P10-P90 coverage {coverage:.2f} outside [0.50, 0.95]"
+    assert 0.65 <= coverage <= 0.95, f"P10-P90 coverage {coverage:.2f} outside [0.65, 0.95]"
