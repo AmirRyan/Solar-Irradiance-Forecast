@@ -35,6 +35,24 @@ def pinball_loss(y: pd.Series, yhat: pd.Series, q: float) -> float:
     return float(np.mean(np.maximum(q * diff, (q - 1) * diff)))
 
 
+# Minimum usable history: below this the quantile fits and the per-regime
+# breakdown are meaningless. NASA POWER normally returns ~10y everywhere,
+# so this only fires on genuinely broken/short responses.
+MIN_FIT_DAYS = 200
+MIN_TEST_DAYS = 30
+
+
+def check_sufficient_history(n_fit: int, n_test: int) -> None:
+    """Raise ValueError (readable message, caught by the dashboard) if a
+    location's usable history is too short to fit and evaluate."""
+    if n_fit < MIN_FIT_DAYS or n_test < MIN_TEST_DAYS:
+        raise ValueError(
+            f"Only {n_fit + n_test} usable days of history for this location "
+            f"(need at least {MIN_FIT_DAYS} to fit and {MIN_TEST_DAYS} to "
+            "evaluate). NASA POWER may not cover this point."
+        )
+
+
 # ---------------------------------------------------------------------------
 # Result container
 # ---------------------------------------------------------------------------
@@ -63,6 +81,7 @@ def run_location(lat: float, lon: float) -> LocationResult:
     """
     train, val, test = data.load_location(lat, lon)
     fit_df = pd.concat([train, val])  # val reserved for future tuning passes
+    check_sufficient_history(len(fit_df), len(test))
 
     # --- models -----------------------------------------------------------
     gbm = QuantileGBM().fit(fit_df)
