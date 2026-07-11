@@ -74,7 +74,7 @@ def run_location(lat: float, lon: float) -> LocationResult:
     )
 
     # --- regimes (analysis layer) ------------------------------------------
-    # NOTE: currently refit per location — see open question in CLAUDE.md.
+    # Refit per location by design (resolved phase 2 — see cluster.py header).
     regimes = RegimeClusterer().fit(fit_df).predict(test)
 
     # --- metrics: baselines alongside every headline number -----------------

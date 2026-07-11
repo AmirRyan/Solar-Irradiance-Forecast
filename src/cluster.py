@@ -3,10 +3,15 @@
 An ANALYSIS layer — regimes are used for the per-regime error breakdown and
 dashboard coloring, never as a modeling input.
 
-OPEN QUESTION (see CLAUDE.md): fit once on demo-location data and .predict()
-on new locations, vs. refit per location. Refitting on a single location's
-limited history risks unstable clusters. Current scaffold refits per location
-(simplest); revisit before finalizing the error-analysis writeup.
+RESOLVED (phase 2, empirically — see CLAUDE.md for the evidence): regimes
+are REFIT PER LOCATION. Fitting once on pooled demo data produced degenerate
+regimes (<20 test days) at 3 of 4 probe locations and transferred
+nonsensically to an equatorial climate; per-location refits were
+non-degenerate everywhere (~10y of history per location is plenty).
+Known limitation: the naming heuristic below is location-relative — in
+non-temperate climates the "Winter Low" / "Transitional" labels can misfire
+(an equatorial location still gets a "Winter Low" cluster). Candidate
+phase-3 polish for the dashboard.
 """
 
 from __future__ import annotations
