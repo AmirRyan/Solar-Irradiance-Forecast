@@ -5,8 +5,8 @@ from src.data import chronological_split, engineer_features
 from src.model_gbm import QuantileGBM
 
 
-def test_quantiles_are_monotone_and_calibrated(synthetic_raw):
-    df = engineer_features(synthetic_raw)
+def test_quantiles_are_monotone_and_calibrated(synthetic_raw, synthetic_lat):
+    df = engineer_features(synthetic_raw, synthetic_lat)
     train, val, test = chronological_split(df)
 
     gbm = QuantileGBM().fit(train)

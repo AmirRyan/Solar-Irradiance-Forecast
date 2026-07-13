@@ -7,8 +7,8 @@ import config
 from src.data import chronological_split, engineer_features
 
 
-def test_features_complete_and_nan_free(synthetic_raw):
-    out = engineer_features(synthetic_raw)
+def test_features_complete_and_nan_free(synthetic_raw, synthetic_lat):
+    out = engineer_features(synthetic_raw, synthetic_lat)
     missing = set(config.FEATURES) - set(out.columns)
     assert not missing, f"engineer_features did not build: {missing}"
     assert not out[config.FEATURES].isna().any().any()
@@ -16,7 +16,7 @@ def test_features_complete_and_nan_free(synthetic_raw):
 
 
 @pytest.mark.parametrize("col", config.NASA_POWER_PARAMETERS)
-def test_features_no_leakage(synthetic_raw, col):
+def test_features_no_leakage(synthetic_raw, synthetic_lat, col):
     """Perturbing ANY raw input at day t must leave features for all days
     <= t unchanged — predicting day t may only use information through the
     end of day t-1. Checking every row up to t (not just t itself) also
@@ -24,20 +24,20 @@ def test_features_no_leakage(synthetic_raw, col):
     window. Parametrized over every raw column so a failure names the
     leaking input; an un-lagged weather covariate would otherwise be
     invisible to a target-only check."""
-    baseline = engineer_features(synthetic_raw)
+    baseline = engineer_features(synthetic_raw, synthetic_lat)
     t = baseline.index[len(baseline) // 2]  # well past the warm-up window
 
     perturbed_raw = synthetic_raw.copy()
     perturbed_raw.loc[t, col] += 5.0
-    perturbed = engineer_features(perturbed_raw)
+    perturbed = engineer_features(perturbed_raw, synthetic_lat)
 
     pd.testing.assert_frame_equal(
         baseline.loc[:t, config.FEATURES], perturbed.loc[:t, config.FEATURES]
     )
 
 
-def test_chronological_split_order_and_fractions(synthetic_raw):
-    df = engineer_features(synthetic_raw)
+def test_chronological_split_order_and_fractions(synthetic_raw, synthetic_lat):
+    df = engineer_features(synthetic_raw, synthetic_lat)
     train, val, test = chronological_split(df)
 
     # nothing lost or duplicated, original order preserved
@@ -53,14 +53,16 @@ def test_chronological_split_order_and_fractions(synthetic_raw):
     assert abs(len(test) / n - f_test) < 0.01
 
 
-def test_engineer_features_sorts_unsorted_input(synthetic_raw):
+def test_engineer_features_sorts_unsorted_input(synthetic_raw, synthetic_lat):
     """Contract: engineer_features sorts its input defensively (rather than
     raising on unsorted frames) — shift/rolling features are only correct on
     chronological order, and sorting makes the function safe for any caller
     (dashboard, notebooks, cached reads). A shuffled frame must therefore
     produce exactly the same output as the sorted original."""
-    baseline = engineer_features(synthetic_raw)
-    shuffled = engineer_features(synthetic_raw.sample(frac=1, random_state=0))
+    baseline = engineer_features(synthetic_raw, synthetic_lat)
+    shuffled = engineer_features(
+        synthetic_raw.sample(frac=1, random_state=0), synthetic_lat
+    )
 
     assert shuffled.index.is_monotonic_increasing
     # check_freq=False: sample() strips the DatetimeIndex freq metadata,

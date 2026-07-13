@@ -20,16 +20,16 @@ NASA_POWER_BASE_URL = "https://power.larc.nasa.gov/api/temporal/daily/point"
 # ALLSKY_SFC_SW_DWN = all-sky surface shortwave downward irradiance (the target)
 NASA_POWER_PARAMETERS = [
     "ALLSKY_SFC_SW_DWN",   # target: solar irradiance (kWh/m^2/day)
-    "CLRSKY_SFC_SW_DWN",   # clear-sky irradiance (for clearness index)
     "T2M",                 # temperature at 2m
     "RH2M",                # relative humidity at 2m
     "WS2M",                # wind speed at 2m
     "PRECTOTCORR",         # precipitation
-    # CLOUD_AMT deliberately excluded: it is a valid RE parameter but is
-    # CERES-derived and lags ~3 months behind the other (near-real-time)
-    # parameters, which would silently drop the most recent ~100 days of
-    # every location's history. Cloudiness is captured via the clearness
-    # index (ALLSKY / CLRSKY) instead.
+    # CLOUD_AMT and CLRSKY_SFC_SW_DWN deliberately excluded: both are valid
+    # RE parameters but are CERES-derived and lag ~3 months behind the other
+    # (near-real-time) parameters, which silently drops the most recent ~100
+    # days of every location's history. Cloudiness is captured via the
+    # clearness index instead — GHI / analytic TOA irradiance (src/solar.py),
+    # which has no API dependency at all.
 ]
 HISTORY_START = "20150101"  # ~10 years of daily history per location
 TARGET_COL = "ALLSKY_SFC_SW_DWN"
@@ -47,7 +47,7 @@ FEATURES = (
     [f"{TARGET_COL}_lag{l}" for l in LAG_DAYS]
     + [f"{TARGET_COL}_roll{w}_mean" for w in ROLLING_WINDOWS]
     + [f"{TARGET_COL}_roll{w}_std" for w in ROLLING_WINDOWS]
-    + ["clearness_index_lag1"]   # ALLSKY / CLRSKY, lagged (no leakage)
+    + ["clearness_index_lag1"]   # GHI / analytic TOA, lagged (no leakage)
     + [f"{c}_lag1" for c in EXOG_COLS]
     + [
         "doy_sin",               # seasonal encodings

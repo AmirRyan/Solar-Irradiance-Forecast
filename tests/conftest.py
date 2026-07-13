@@ -6,6 +6,16 @@ import pytest
 
 import config
 
+# The latitude the synthetic frame "lives at". Its seasonal target cycle
+# (sine peaking near the June solstice) matches a northern mid-latitude, so
+# the clearness index (GHI / TOA(lat)) sees a physically consistent site.
+SYNTHETIC_LAT = 45.0
+
+
+@pytest.fixture
+def synthetic_lat() -> float:
+    return SYNTHETIC_LAT
+
 
 @pytest.fixture
 def synthetic_raw() -> pd.DataFrame:
@@ -31,7 +41,6 @@ def synthetic_raw() -> pd.DataFrame:
 
     special = {
         "ALLSKY_SFC_SW_DWN": clrsky * cloudiness,
-        "CLRSKY_SFC_SW_DWN": clrsky,
         "T2M": 10 + 8 * np.sin(2 * np.pi * (doy - 110) / 365.25) + rng.normal(0, 2, n),
     }
     df = pd.DataFrame(
