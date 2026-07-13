@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Phase 3 (web app) is complete: `dashboard/app.py` is a working Dash app — three verified input modes (preset / map click / manual lat/lon, resolved by which input fired so stale values never shadow the latest action), inline error handling for invalid input and NASA POWER failures, an in-process result memo (dashboard-layer LRU, keys match `data.py`'s 2dp cache rounding), honest P10–P90 band labeling with measured coverage in the caption, and a per-request SHAP panel (measured ~0.2s). Pure helpers live in `dashboard/helpers.py` (network-free tests in `tests/`). Phase 2 delivered: tuned `LGBM_PARAMS` via `src/tune.py` (val pinball −5.8%, P10–P90 test coverage 0.72–0.78 — no conformal step needed), refit-per-location clustering, SHAP artifacts from `train.py`. Results tables live in README.md. Next: phase-4 go/no-go (stretch model vs polish). Note: `CLOUD_AMT` was deliberately dropped from the fetched parameters — it is CERES-derived and lags ~3 months behind the near-real-time parameters (see `config.py`); cloudiness is captured via the clearness index instead.
+Phase 3 (web app) is complete: `dashboard/app.py` is a working Dash app — three verified input modes (preset / map click / manual lat/lon, resolved by which input fired so stale values never shadow the latest action), inline error handling for invalid input and NASA POWER failures, an in-process result memo (dashboard-layer LRU, keys match `data.py`'s 2dp cache rounding), honest P10–P90 band labeling with measured coverage in the caption, and a per-request SHAP panel (measured ~0.2s). Pure helpers live in `dashboard/helpers.py` (network-free tests in `tests/`). Phase 2 delivered: tuned `LGBM_PARAMS` via `src/tune.py` (val pinball −5.8%, P10–P90 test coverage 0.72–0.78 — no conformal step needed), refit-per-location clustering, SHAP artifacts from `train.py`. Results tables live in README.md. Next: phase-4 go/no-go (stretch model vs polish). Note: `CLOUD_AMT` and `CLRSKY_SFC_SW_DWN` were both deliberately dropped from the fetched parameters — they are CERES-derived and lag ~3 months behind the near-real-time parameters (see `config.py`); cloudiness is captured via the clearness index (GHI / analytic TOA, `src/solar.py`) instead. 2026-07-13 fix: the CLRSKY lag had been silently wiping most of the trailing ~3 months of test data at Bristol/Bergen — resolved (test days recovered, P10–P90 coverage re-measured at 0.73–0.77); the README metrics tables are stale until regenerated.
 
 ## What this project is
 
@@ -62,6 +62,10 @@ solar-forecast/
 
 Feature list, cache directory paths, and preset demo locations live in `config.py` from day one. Don't redefine these in individual modules.
 
+### Clearness index: GHI / analytic TOA irradiance
+
+The clearness-index feature is `ALLSKY_SFC_SW_DWN / toa_irradiance(lat, doy)` — the Duffie & Beckman daily extraterrestrial-irradiance formula (`src/solar.py`, pure numpy: lat + day-of-year, no API dependency, defined at every location; polar night gives H0 = 0 → k_t = NaN). This replaced the API's `CLRSKY_SFC_SW_DWN` (see NASA POWER facts), which is why `engineer_features` takes `lat` explicitly. k_t values run lower than the old ALLSKY/CLRSKY ratio (TOA exceeds modeled clear-sky) — harmless for the model, and `cluster.py`'s naming heuristic only uses per-location relative order, verified post-switch (regimes non-degenerate at the presets, min 63 test days; Nairobi still gates to "Low Irradiance").
+
 ### Model layering
 
 - `baseline.py` — persistence (naive) + Ridge. Report alongside every headline result, never a bare number.
@@ -100,9 +104,9 @@ Lat/lon via map click or numeric entry, plus a preset dropdown of 5–8 notable 
 ## NASA POWER API facts (hard-won — verified against the live API)
 
 - Daily/point endpoint response shape: values live at `properties.parameter.<PARAM>.<YYYYMMDD>`; the fill value for missing / not-yet-processed days is `-999.0`.
-- Near-real-time parameters (irradiance, T2M, etc.) lag ~5–7 days behind today; those trailing days arrive as `-999` and are dropped via the target-column dropna.
-- `CLOUD_AMT` is a valid RE-community parameter but is CERES-derived and lags **~3 months** — keeping it as a feature would silently drop the most recent ~100 days per location, which is why it was removed (cloudiness is captured by the clearness index).
-- All parsing of this payload lives in `data._parse_power_response` (a pure function, extracted so it is testable without the network). Don't re-handle `-999` elsewhere.
+- Near-real-time parameters (irradiance, T2M, etc.) lag ~5–7 days behind today; those trailing days arrive as `-999` and are dropped by the target dropna at the end of feature engineering.
+- `CLOUD_AMT` **and `CLRSKY_SFC_SW_DWN`** are valid RE-community parameters but are CERES-derived and lag **~3 months** (CLRSKY observed empirically: missing from 2026-03-31 onward in a 2026-07-09 fetch, at every location probed) — keeping either as a feature silently drops the most recent ~100 days per location, so neither is fetched. The clearness index uses analytic TOA irradiance as its denominator instead (see Architecture).
+- All parsing of this payload lives in `data._parse_power_response` (a pure function, extracted so it is testable without the network). It returns a **continuous daily calendar**: `-999` becomes NaN, absent date keys come back as explicit all-NaN rows, and no rows are dropped in the parser. Don't re-handle `-999` elsewhere.
 
 ## Testing conventions
 
@@ -110,7 +114,7 @@ Lat/lon via map click or numeric entry, plus a preset dropdown of 5–8 notable 
 - **Schemas derive from `config`, never hardcoded.** Fixtures and payload builders construct their columns from `config.NASA_POWER_PARAMETERS` and assert set-equality, so they fail loudly if the parameter list changes instead of passing against a stale schema.
 - **The `synthetic_raw` fixture is deliberately learnable** (seasonal clear-sky sine × cloudiness multiplier, fixed seed, ~6.5 years). The GBM coverage assertion depends on both the learnability and the size — small fixtures make the quantile models memorize the training set and read artificially low coverage.
 - **Leakage testing**: perturb every raw input column (parametrized) at a day t and assert all engineered feature rows ≤ t are unchanged — this catches un-lagged covariates and backward flow from future rows, and a failure names the leaking column.
-- `engineer_features` sorts its input defensively (contract pinned by `test_engineer_features_sorts_unsorted_input`).
+- `engineer_features` sorts its input defensively AND reindexes it to a continuous daily calendar (contracts pinned by `test_engineer_features_sorts_unsorted_input` and `test_lag_features_respect_calendar_gaps`): positional `shift`/`rolling` on a frame with a missing calendar day would silently read across the gap, so the day after a hole gets NaN lags (and drops), never the value from two days prior. Rolling windows tolerate one missing day per window (`min_periods=w-1`). `engineer_features` takes `lat` (for the TOA clearness denominator); the synthetic fixture "lives at" `conftest.SYNTHETIC_LAT` (45°N, matching its June-peaking seasonal cycle).
 - Calibration (resolved phase 2): the original hand-picked `LGBM_PARAMS` undercovered (~0.62–0.68 P10–P90 coverage); the tuned params (strong regularization, see `config.py`) measure 0.72–0.78 on the real demo locations + Nairobi and ~0.73 on the synthetic fixture — no conformal post-hoc step was needed. The coverage test's lower bound is 0.65; if coverage regresses below that, suspect a params change before suspecting the test.
 
 ## Evaluation conventions
