@@ -27,16 +27,20 @@ def _cache_path(lat: float, lon: float):
 
 def _parse_power_response(payload: dict) -> pd.DataFrame:
     """Turn a NASA POWER daily/point JSON payload into a clean frame:
-    sorted DatetimeIndex, one column per parameter, -999 fill values
-    converted to NaN, and rows without a target value (trailing
-    not-yet-processed days) dropped."""
+    continuous daily DatetimeIndex (calendar gaps become explicit all-NaN
+    rows so downstream shift/rolling stay calendar-true), one column per
+    parameter, -999 fill values converted to NaN. Rows without a target
+    value (e.g. the trailing not-yet-processed days) are kept here — the
+    target dropna at the end of feature engineering removes them, after
+    lags/rolling have seen the gaps."""
     raw = payload["properties"]["parameter"]
 
     df = pd.DataFrame({p: pd.Series(vals) for p, vals in raw.items()})
     df.index = pd.to_datetime(df.index, format="%Y%m%d")
     df = df.sort_index()
     # NASA POWER uses -999 for missing / not-yet-available days
-    return df.replace(-999, np.nan).dropna(subset=[config.TARGET_COL])
+    df = df.replace(-999, np.nan)
+    return df.reindex(pd.date_range(df.index.min(), df.index.max(), freq="D"))
 
 
 def fetch_history(lat: float, lon: float, force_refresh: bool = False) -> pd.DataFrame:
@@ -71,22 +75,19 @@ def fetch_history(lat: float, lon: float, force_refresh: bool = False) -> pd.Dat
 # ---------------------------------------------------------------------------
 # Feature engineering — builds exactly config.FEATURES, nothing else
 # ---------------------------------------------------------------------------
-def engineer_features(df: pd.DataFrame, lat: float) -> pd.DataFrame:
-    """Add lag / rolling / seasonal features for next-day forecasting.
+def _build_features(df: pd.DataFrame, lat: float) -> pd.DataFrame:
+    """Feature construction without the final dropna — separated out so
+    tests can inspect pre-drop values (e.g. that lags across a calendar gap
+    are NaN rather than the value from one day too far back).
 
-    `lat` is the location's latitude, needed for the analytic TOA irradiance
-    that anchors the clearness index (GHI / TOA) — the API's
-    CLRSKY_SFC_SW_DWN is CERES-derived and lags ~3 months, so it is no
-    longer fetched.
-
-    All features are lagged or rolling-on-past-values only: predicting day t
-    uses information available at the end of day t-1 (no leakage).
-
-    Sorts its input defensively — shift/rolling features are only correct on
-    a chronologically ordered frame, so the contract is total rather than
-    assuming callers pre-sort.
+    Sorts AND reindexes its input defensively to a continuous daily
+    calendar: shift/rolling are positional, so a missing calendar day would
+    otherwise make every lag silently read across the gap. The reindex also
+    repairs frames from caches written before _parse_power_response became
+    gapless.
     """
     out = df.sort_index()
+    out = out.reindex(pd.date_range(out.index.min(), out.index.max(), freq="D"))
     y = out[config.TARGET_COL]
 
     for l in config.LAG_DAYS:
@@ -94,12 +95,19 @@ def engineer_features(df: pd.DataFrame, lat: float) -> pd.DataFrame:
 
     for w in config.ROLLING_WINDOWS:
         shifted = y.shift(1)  # window ends at t-1
-        out[f"{config.TARGET_COL}_roll{w}_mean"] = shifted.rolling(w).mean()
-        out[f"{config.TARGET_COL}_roll{w}_std"] = shifted.rolling(w).std()
+        # min_periods=w-1 tolerates a single missing day inside a window, so
+        # one calendar gap doesn't void the next w days of rolling features.
+        # (Lags stay strict: the gap's neighbours drop via NaN lag values.)
+        out[f"{config.TARGET_COL}_roll{w}_mean"] = (
+            shifted.rolling(w, min_periods=w - 1).mean()
+        )
+        out[f"{config.TARGET_COL}_roll{w}_std"] = (
+            shifted.rolling(w, min_periods=w - 1).std()
+        )
 
     # Clearness index k_t = GHI / analytic TOA irradiance. TOA is pure solar
     # geometry (never missing, defined everywhere); where it is 0 (polar
-    # night) k_t is undefined -> NaN, handled by the dropna below.
+    # night) k_t is undefined -> NaN, handled by engineer_features' dropna.
     h0 = toa_irradiance(lat, out.index.dayofyear)
     clearness = (out[config.TARGET_COL] / np.where(h0 > 0, h0, np.nan)).clip(0, 1.2)
     out["clearness_index_lag1"] = clearness.shift(1)
@@ -111,7 +119,27 @@ def engineer_features(df: pd.DataFrame, lat: float) -> pd.DataFrame:
     out["doy_sin"] = np.sin(2 * np.pi * doy / 365.25)
     out["doy_cos"] = np.cos(2 * np.pi * doy / 365.25)
 
-    return out.dropna(subset=config.FEATURES)
+    return out
+
+
+def engineer_features(df: pd.DataFrame, lat: float) -> pd.DataFrame:
+    """Add lag / rolling / seasonal features for next-day forecasting.
+
+    `lat` is the location's latitude, needed for the analytic TOA irradiance
+    that anchors the clearness index (GHI / TOA) — the API's
+    CLRSKY_SFC_SW_DWN is CERES-derived and lags ~3 months, so it is no
+    longer fetched.
+
+    All features are lagged or rolling-on-past-values only: predicting day t
+    uses information available at the end of day t-1 (no leakage).
+
+    The final dropna removes rows with an incomplete feature vector (warm-up,
+    days bordering a calendar gap) and rows without an observed target
+    (trailing not-yet-processed days, the gap days themselves) — the parser
+    keeps those so that shift/rolling see the true calendar.
+    """
+    out = _build_features(df, lat)
+    return out.dropna(subset=config.FEATURES + [config.TARGET_COL])
 
 
 # ---------------------------------------------------------------------------
