@@ -34,6 +34,14 @@ NASA_POWER_PARAMETERS = [
 HISTORY_START = "20150101"  # ~10 years of daily history per location
 TARGET_COL = "ALLSKY_SFC_SW_DWN"
 
+# Cache staleness threshold, measured against the last OBSERVED day (last
+# non-NaN target) in the cached parquet — not file mtime. NASA POWER's
+# near-real-time feed lags ~5-7 days, so a fetch made TODAY already has a
+# last observed day of ~today-6: this threshold must exceed the NRT lag by a
+# real margin or every request would refetch in a loop. 10 = lag + ~3-5 days
+# of acceptable drift; a location refetches at most ~once per 10 days.
+CACHE_MAX_AGE_DAYS = 10
+
 # ---------------------------------------------------------------------------
 # Feature engineering (data.py builds exactly these; models consume FEATURES)
 # ---------------------------------------------------------------------------

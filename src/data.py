@@ -6,6 +6,7 @@ raw history is cached to parquet after the first request.
 
 from __future__ import annotations
 
+import logging
 from datetime import date
 
 import numpy as np
@@ -14,6 +15,13 @@ import requests
 
 import config
 from src.solar import toa_irradiance
+
+logger = logging.getLogger(__name__)
+
+
+def _today() -> date:
+    """Today's date. A seam for tests (monkeypatch this, not datetime)."""
+    return date.today()
 
 
 # ---------------------------------------------------------------------------
@@ -43,14 +51,21 @@ def _parse_power_response(payload: dict) -> pd.DataFrame:
     return df.reindex(pd.date_range(df.index.min(), df.index.max(), freq="D"))
 
 
-def fetch_history(lat: float, lon: float, force_refresh: bool = False) -> pd.DataFrame:
-    """Return the daily NASA POWER history for a location, cached after the
-    first request. Index: DatetimeIndex. Columns: config.NASA_POWER_PARAMETERS.
-    """
-    path = _cache_path(lat, lon)
-    if path.exists() and not force_refresh:
-        return pd.read_parquet(path)
+def _cache_is_stale(df: pd.DataFrame) -> bool:
+    """True when the cache's last OBSERVED day (last non-NaN target — caches
+    carry trailing all-NaN rows for NASA's not-yet-processed days) is more
+    than config.CACHE_MAX_AGE_DAYS ago. Strict '>': a cache exactly at the
+    threshold is still fresh. Measured on data content, not file mtime —
+    mtime doesn't survive copies and says nothing about the contents."""
+    last_observed = df[config.TARGET_COL].dropna().index.max()
+    if pd.isna(last_observed):
+        return True
+    return (_today() - last_observed.date()).days > config.CACHE_MAX_AGE_DAYS
 
+
+def _fetch_remote(lat: float, lon: float) -> pd.DataFrame:
+    """One full-history NASA POWER request -> parsed frame. No caching here;
+    also the network seam tests monkeypatch."""
     resp = requests.get(
         config.NASA_POWER_BASE_URL,
         params={
@@ -59,13 +74,48 @@ def fetch_history(lat: float, lon: float, force_refresh: bool = False) -> pd.Dat
             "latitude": lat,
             "longitude": lon,
             "start": config.HISTORY_START,
-            "end": date.today().strftime("%Y%m%d"),
+            "end": _today().strftime("%Y%m%d"),
             "format": "JSON",
         },
         timeout=120,
     )
     resp.raise_for_status()
-    df = _parse_power_response(resp.json())
+    return _parse_power_response(resp.json())
+
+
+def fetch_history(lat: float, lon: float, force_refresh: bool = False) -> pd.DataFrame:
+    """Return the daily NASA POWER history for a location, cached to parquet.
+    Index: DatetimeIndex. Columns: config.NASA_POWER_PARAMETERS.
+
+    A cache hit is served unless it is stale (see _cache_is_stale), in which
+    case the location is refetched in full and the parquet overwritten.
+    Full refetch only — the fetch is seconds-scale and fires at most ~once
+    per CACHE_MAX_AGE_DAYS per location, so delta/incremental fetching is
+    deliberately not implemented (future work if that ever changes).
+
+    If an automatic staleness refetch fails, the stale cache is served with
+    a logged warning — a live demo degrades to slightly-old data, never a
+    stack trace. force_refresh=True is the manual override: it always
+    refetches and propagates fetch errors instead of falling back.
+    """
+    path = _cache_path(lat, lon)
+    cached = pd.read_parquet(path) if path.exists() else None
+    if cached is not None and not force_refresh and not _cache_is_stale(cached):
+        return cached
+
+    try:
+        df = _fetch_remote(lat, lon)
+    except Exception as exc:
+        if cached is not None and not force_refresh:
+            last_observed = cached[config.TARGET_COL].dropna().index.max()
+            logger.warning(
+                "NASA POWER refetch failed for (%.2f, %.2f): %s — serving the "
+                "stale cache (last observed day %s) instead.",
+                lat, lon, exc,
+                "unknown" if pd.isna(last_observed) else last_observed.date(),
+            )
+            return cached
+        raise
 
     config.CACHE_DIR.mkdir(parents=True, exist_ok=True)
     df.to_parquet(path)

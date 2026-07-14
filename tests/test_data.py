@@ -1,10 +1,15 @@
-"""Feature engineering + split contracts (no network)."""
+"""Feature engineering, split, and cache-staleness contracts (no network)."""
+
+import logging
+from datetime import date, timedelta
 
 import numpy as np
 import pandas as pd
 import pytest
+import requests
 
 import config
+from src import data
 from src.data import _build_features, chronological_split, engineer_features
 
 
@@ -106,3 +111,110 @@ def test_engineer_features_sorts_unsorted_input(synthetic_raw, synthetic_lat):
     # check_freq=False: sample() strips the DatetimeIndex freq metadata,
     # which is irrelevant to the contract
     pd.testing.assert_frame_equal(shuffled, baseline, check_freq=False)
+
+
+# ---------------------------------------------------------------------------
+# Cache staleness (fetch_history) — network and clock are monkeypatched seams
+# ---------------------------------------------------------------------------
+TODAY = date(2026, 7, 14)
+NRT_LAG_DAYS = 6  # a fetch made today observes data up to ~today - 6
+
+
+def _frame_ending(last_day: date, days: int = 40) -> pd.DataFrame:
+    """A cache-shaped frame (columns from config, per testing conventions)
+    whose last observed (non-NaN target) day is `last_day`."""
+    idx = pd.date_range(end=pd.Timestamp(last_day), periods=days, freq="D")
+    return pd.DataFrame(
+        {p: np.full(days, 1.0) for p in config.NASA_POWER_PARAMETERS}, index=idx
+    )
+
+
+@pytest.fixture
+def cache_env(tmp_path, monkeypatch):
+    """Isolated cache dir + frozen clock + recording fake network fetch.
+    Returns the recorder; `.calls` counts network hits, `.frame` is what a
+    successful fetch returns (fresh data: last observed = today - NRT lag)."""
+    monkeypatch.setattr(config, "CACHE_DIR", tmp_path)
+    monkeypatch.setattr(data, "_today", lambda: TODAY)
+
+    class Recorder:
+        def __init__(self):
+            self.calls = 0
+            self.frame = _frame_ending(TODAY - timedelta(days=NRT_LAG_DAYS))
+            self.error: Exception | None = None
+
+        def __call__(self, lat, lon):
+            self.calls += 1
+            if self.error is not None:
+                raise self.error
+            return self.frame
+
+    recorder = Recorder()
+    monkeypatch.setattr(data, "_fetch_remote", recorder)
+    return recorder
+
+
+def _seed_cache(last_day: date) -> pd.DataFrame:
+    path = data._cache_path(50.0, 0.0)
+    _frame_ending(last_day).to_parquet(path)
+    # return the parquet round-trip (index dtype narrows to datetime64[ms],
+    # freq metadata is dropped) so comparisons match what fetch_history reads
+    return pd.read_parquet(path)
+
+
+def test_stale_cache_triggers_full_refetch_and_rewrite(cache_env):
+    _seed_cache(TODAY - timedelta(days=20))
+
+    out = data.fetch_history(50.0, 0.0)
+
+    assert cache_env.calls == 1
+    pd.testing.assert_frame_equal(out, cache_env.frame)
+    # parquet was overwritten, not just returned fresh in-memory
+    on_disk = pd.read_parquet(data._cache_path(50.0, 0.0))
+    assert on_disk.index.max() == cache_env.frame.index.max()
+
+
+def test_fresh_cache_never_triggers_refetch_loop(cache_env):
+    """The no-refetch-loop property: a cache fetched THIS morning has a last
+    observed day of ~today - NRT lag (~6 days). That must read as fresh —
+    if it didn't, every request would refetch forever, since no fetch can
+    ever return data newer than the NRT lag allows."""
+    cached = _seed_cache(TODAY - timedelta(days=NRT_LAG_DAYS))
+
+    out = data.fetch_history(50.0, 0.0)
+
+    assert cache_env.calls == 0
+    pd.testing.assert_frame_equal(out, cached)
+
+
+def test_force_refresh_refetches_even_when_fresh(cache_env):
+    _seed_cache(TODAY - timedelta(days=NRT_LAG_DAYS))
+
+    out = data.fetch_history(50.0, 0.0, force_refresh=True)
+
+    assert cache_env.calls == 1
+    pd.testing.assert_frame_equal(out, cache_env.frame)
+
+
+def test_failed_refetch_serves_stale_cache_with_warning(cache_env, caplog):
+    """A live demo degrades to slightly-old data, never a stack trace."""
+    cached = _seed_cache(TODAY - timedelta(days=20))
+    cache_env.error = requests.ConnectionError("NASA POWER is down")
+
+    with caplog.at_level(logging.WARNING, logger="src.data"):
+        out = data.fetch_history(50.0, 0.0)
+
+    assert cache_env.calls == 1
+    pd.testing.assert_frame_equal(out, cached)
+    assert any("stale cache" in r.message for r in caplog.records)
+
+
+def test_cache_exactly_at_threshold_is_not_stale(cache_env):
+    """Boundary pin: staleness is strictly '>', so a last observed day of
+    exactly today - CACHE_MAX_AGE_DAYS does not refetch."""
+    cached = _seed_cache(TODAY - timedelta(days=config.CACHE_MAX_AGE_DAYS))
+
+    out = data.fetch_history(50.0, 0.0)
+
+    assert cache_env.calls == 0
+    pd.testing.assert_frame_equal(out, cached)
