@@ -104,4 +104,5 @@ DEMO_LOCATIONS = {
     "Bristol, UK":        {"lat": 51.4545, "lon": -2.5879},   # temperate/mixed
     "Phoenix, AZ, USA":   {"lat": 33.4484, "lon": -112.0740}, # sunny/arid
     "Bergen, Norway":     {"lat": 60.3913, "lon": 5.3221},    # cloudy/wet
+    "Kuala Lumpur, MY":   {"lat": 3.14,    "lon": 101.69},    # equatorial/humid
 }
