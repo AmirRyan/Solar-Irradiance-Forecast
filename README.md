@@ -6,20 +6,28 @@ click, preset, or manual entry) and get a next-day P10/P50/P90 forecast fit
 on that location's own history — with baselines, uncertainty bands, weather-
 regime error analysis, and SHAP explanations.
 
-![Dashboard: Bristol forecast with P10–P90 band, regime coloring, and SHAP panel](docs/dashboard.png)
+![Dashboard: Bristol forecast with P10–P90 band and regime-colored actuals](docs/img/forecast-bristol.png)
 
 ## How it works
 
 - **Per-location fetch-and-fit:** on request, the app fetches (and caches)
-  ~10 years of NASA POWER history for that lat/lon and fits baselines +
-  LightGBM on the spot. The fit takes seconds; the API fetch is the latency
-  bottleneck, so repeat requests are instant.
+  NASA POWER daily history since 2015 (~11 years) for that lat/lon and fits
+  baselines + LightGBM on the spot. The fit takes seconds; the API fetch is
+  the latency bottleneck, so repeat requests are instant. Caches self-refresh:
+  one older than 10 days (measured against its last observed day) is refetched
+  in full on next access, and if that refetch fails the stale cache is served
+  with a warning — a live demo degrades to slightly-old data, never an error.
+- **Four pre-cached presets** — Bristol (temperate/mixed), Phoenix
+  (sunny/arid), Bergen (cloudy/wet), Kuala Lumpur (equatorial/humid) — so a
+  live demo never waits on the NASA POWER API.
 - **Models:** persistence and Ridge baselines (the floor), LightGBM quantile
   regression (P10/P50/P90, the headline model), and an optional attention
   LSTM / TFT-lite comparison model (stretch).
 - **Analysis:** KMeans weather-regime clustering (Clear Sky / Overcast /
-  Transitional / Winter Low) drives a per-regime RMSE breakdown, plus SHAP
-  feature importance and per-prediction explanations.
+  Transitional / Winter Low — locations without a real seasonal cycle, like
+  Kuala Lumpur, get the neutral "Low Irradiance" instead of "Winter Low")
+  drives a per-regime RMSE breakdown, plus SHAP feature importance and
+  per-prediction explanations.
 - **One code path:** `src/pipeline.py` is the single fetch → features → fit →
   predict function; both the offline training script and the live dashboard
   call it, so the two can never drift.
@@ -29,12 +37,18 @@ regime error analysis, and SHAP explanations.
 ```bash
 pip install -r requirements.txt   # macOS: also `brew install libomp` for LightGBM
 
-# Warm the cache + fit models for the demo locations, print metrics
+# Optional but recommended before launching (and before any live demo):
+# warm the caches + fit models for the four presets, print metrics
 python -m src.train
 
 # Launch the web app at http://127.0.0.1:8050
 python dashboard/app.py
+
+# Run the test suite (synthetic data only, no network)
+python -m pytest tests/
 ```
+
+![Location input: preset dropdown, manual lat/lon, and clickable map](docs/img/location-input.png)
 
 The dashboard labels its uncertainty band honestly: it is the model's
 P10–P90 quantile forecast, whose **measured** coverage on held-out data is
@@ -125,7 +139,10 @@ refit per location (see the error-analysis notes below for naming caveats).
 | Kuala Lumpur | Overcast | 128 | 0.937 | 0.736 |
 
 These tables and the SHAP feature-importance artifacts are regenerated into
-`artifacts/` by `python -m src.train`.
+`artifacts/` by `python -m src.train`. The dashboard also computes a SHAP
+panel per request:
+
+![SHAP panel: top-8 features by mean |SHAP| for the P50 model](docs/img/shap-phoenix.png)
 
 ## Error analysis
 
@@ -199,4 +216,6 @@ cite measured coverage instead of claiming "80% confidence".
 See `CLAUDE.md` for the full architecture guide. In short: `config.py` is the
 single source of truth for features/paths/demo locations; `src/` holds the
 data layer, models, clustering, SHAP, and the shared pipeline; `dashboard/`
-is the Plotly Dash app; `notebooks/eda.ipynb` is exploratory only.
+is the Plotly Dash app (pure helpers in `dashboard/helpers.py`); `tests/` is
+a network-free pytest suite running entirely on synthetic data;
+`notebooks/eda.ipynb` is exploratory only.
