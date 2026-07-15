@@ -38,48 +38,94 @@ python dashboard/app.py
 
 The dashboard labels its uncertainty band honestly: it is the model's
 P10–P90 quantile forecast, whose **measured** coverage on held-out data is
-~72–78% (nominal 80%) — shown in the caption and per-location coverage tile
-rather than marketed as an "80% confidence interval".
+0.73–0.77 (nominal 0.80) — shown in the caption and per-location coverage
+tile rather than marketed as an "80% confidence interval".
 
 ## Results
 
-Next-day forecasts on each location's held-out test set (~614–621 days,
-kWh/m²/day). LightGBM hyperparameters were tuned once on the demo locations'
-validation splits (`src/tune.py`) and reused fixed everywhere — baselines
-alongside every number.
+Next-day forecasts on each location's held-out test set (kWh/m²/day),
+regenerated 2026-07-15. Splits are chronological (70/15/15): each preset
+trains on 2015 → early 2023, keeps a ~626-day validation slice between train
+and test (used once, by the one-off hyperparameter tuning in `src/tune.py` —
+the winning params are reused fixed everywhere), and is evaluated on the most
+recent ~626 days:
 
-**Bristol, UK** (temperate/mixed)
+| Location | Train window | Test window | Test days | Measured P10–P90 coverage |
+|---|---|---|---|---|
+| Bristol, UK (temperate/mixed) | 2015-01-30 → 2023-01-23 | 2024-10-10 → 2026-07-09 | 626 | 0.730 |
+| Phoenix, AZ, USA (sunny/arid) | 2015-01-30 → 2023-02-01 | 2024-10-21 → 2026-07-09 | 627 | 0.756 |
+| Bergen, Norway (cloudy/wet) | 2015-01-30 → 2023-01-23 | 2024-10-10 → 2026-07-09 | 626 | 0.765 |
+| Kuala Lumpur, MY (equatorial/humid) | 2015-01-30 → 2023-01-27 | 2024-10-15 → 2026-07-08 | 626 | 0.740 |
 
-| Model | RMSE | MAE | Pinball (P10/P50/P90) |
-|---|---|---|---|
-| Persistence | 1.139 | 0.798 | – |
-| Ridge | 0.922 | 0.698 | – |
-| LightGBM (P50) | 0.928 | **0.689** | 0.153 / 0.345 / 0.129 |
+Coverage is the measured fraction of test-set actuals falling inside the
+P10–P90 band (nominal 0.80). Test windows end ~6 days before the fetch date
+because NASA POWER's near-real-time feed lags ~5–7 days.
 
-**Phoenix, AZ, USA** (sunny/arid)
-
-| Model | RMSE | MAE | Pinball (P10/P50/P90) |
-|---|---|---|---|
-| Persistence | 0.864 | 0.512 | – |
-| Ridge | **0.740** | 0.507 | – |
-| LightGBM (P50) | 0.772 | **0.450** | 0.161 / 0.225 / 0.068 |
-
-**Bergen, Norway** (cloudy/wet)
+**Bristol, UK**
 
 | Model | RMSE | MAE | Pinball (P10/P50/P90) |
 |---|---|---|---|
-| Persistence | 1.018 | 0.642 | – |
-| Ridge | 0.842 | 0.574 | – |
-| LightGBM (P50) | **0.835** | **0.535** | 0.117 / 0.268 / 0.116 |
+| Persistence | 1.199 | 0.834 | – |
+| Ridge | **0.978** | 0.735 | – |
+| LightGBM (P50) | 0.985 | **0.725** | 0.164 / 0.362 / 0.132 |
 
-The quantile model's P10–P90 band covers 72–78% of test-set actuals across
-the demo locations (ideal: 80%), and the same fixed hyperparameters hold up
-off-preset — e.g. Nairobi (equatorial): LightGBM RMSE 0.783 vs Ridge 0.796
-vs persistence 0.930, with 77.5% band coverage. LightGBM's P50 optimizes
-absolute error, which is why it consistently wins MAE while Ridge stays
-competitive on RMSE. Per-regime RMSE breakdowns (the primary error-analysis
-lens) and SHAP feature-importance artifacts are written to `artifacts/` by
-`python -m src.train`.
+**Phoenix, AZ, USA**
+
+| Model | RMSE | MAE | Pinball (P10/P50/P90) |
+|---|---|---|---|
+| Persistence | 0.989 | 0.587 | – |
+| Ridge | **0.809** | 0.534 | – |
+| LightGBM (P50) | 0.836 | **0.486** | 0.180 / 0.243 / 0.072 |
+
+**Bergen, Norway**
+
+| Model | RMSE | MAE | Pinball (P10/P50/P90) |
+|---|---|---|---|
+| Persistence | 1.182 | 0.736 | – |
+| Ridge | **0.955** | 0.643 | – |
+| LightGBM (P50) | 0.958 | **0.613** | 0.135 / 0.307 / 0.126 |
+
+**Kuala Lumpur, MY**
+
+| Model | RMSE | MAE | Pinball (P10/P50/P90) |
+|---|---|---|---|
+| Persistence | 1.100 | 0.825 | – |
+| Ridge | **0.846** | 0.638 | – |
+| LightGBM (P50) | 0.854 | **0.636** | 0.179 / 0.318 / 0.119 |
+
+The same fixed hyperparameters hold up off-preset — e.g. Nairobi, Kenya
+(equatorial, not pre-cached, re-measured 2026-07-15): LightGBM RMSE 0.776 vs
+Ridge 0.805 vs persistence 0.926, with measured band coverage 0.765 over 626
+test days. LightGBM's P50 optimizes absolute error, which is why it wins MAE
+at every location while Ridge stays marginally ahead on RMSE.
+
+### Per-regime RMSE breakdown
+
+The primary error-analysis lens (per CLAUDE.md's evaluation conventions):
+LightGBM P50 error split by weather regime, where regimes are KMeans clusters
+refit per location (see the error-analysis notes below for naming caveats).
+
+| Location | Regime | Days | RMSE | MAE |
+|---|---|---|---|---|
+| Bristol | Overcast | 207 | 0.513 | 0.376 |
+| Bristol | Winter Low | 163 | 0.760 | 0.564 |
+| Bristol | Transitional | 103 | 1.240 | 1.012 |
+| Bristol | Clear Sky | 153 | 1.402 | 1.175 |
+| Phoenix | Winter Low | 220 | 0.661 | 0.402 |
+| Phoenix | Clear Sky | 154 | 0.797 | 0.469 |
+| Phoenix | Transitional | 188 | 0.979 | 0.493 |
+| Phoenix | Overcast | 65 | 0.993 | 0.791 |
+| Bergen | Overcast | 249 | 0.307 | 0.183 |
+| Bergen | Winter Low | 115 | 0.773 | 0.505 |
+| Bergen | Transitional | 152 | 1.238 | 0.996 |
+| Bergen | Clear Sky | 110 | 1.506 | 1.172 |
+| Kuala Lumpur | Low Irradiance | 127 | 0.730 | 0.572 |
+| Kuala Lumpur | Transitional | 152 | 0.863 | 0.621 |
+| Kuala Lumpur | Clear Sky | 219 | 0.863 | 0.626 |
+| Kuala Lumpur | Overcast | 128 | 0.937 | 0.736 |
+
+These tables and the SHAP feature-importance artifacts are regenerated into
+`artifacts/` by `python -m src.train`.
 
 ## Repo layout
 
