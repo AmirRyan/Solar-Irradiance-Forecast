@@ -127,6 +127,73 @@ refit per location (see the error-analysis notes below for naming caveats).
 These tables and the SHAP feature-importance artifacts are regenerated into
 `artifacts/` by `python -m src.train`.
 
+## Error analysis
+
+**Where the model earns its keep.** LightGBM's P50 beats both baselines on
+MAE at all four presets (and off-preset Nairobi), while Ridge stays
+marginally ahead on RMSE everywhere (by 0.003–0.027). That is expected, not
+a bug: the P50 is trained on pinball loss, which optimizes absolute error,
+so it wins MAE and cedes a sliver of RMSE to the least-squares baseline. The
+headline value is not the point forecast anyway — it is the calibrated
+P10–P90 band, which neither baseline provides at all.
+
+**Where it struggles, by regime.** Absolute error tracks irradiance level
+and volatility, not "cloudiness is hard". At Bristol and Bergen the easiest
+stratum is Overcast (RMSE 0.51 / 0.31 — dim days leave little room to miss)
+and the hardest is the high-irradiance Clear Sky stratum (1.40 / 1.51), with
+Transitional close behind (~1.24): a bright day arriving after mixed weather
+is exactly where lag-driven features whiff, and where the uncertainty band
+matters most. Phoenix inverts the temperate pattern — its stable winter is
+its easiest regime (0.66) and its *rare* Overcast days (65 of 627) are its
+hardest (0.99): the regimes a location seldom sees are the regimes its model
+is worst at. Kuala Lumpur has the narrowest spread (0.73–0.94); with no
+seasonal cycle, day-to-day equatorial convection dominates and regime
+membership carries less information.
+
+**The honest-calibration story.** The original hand-picked LightGBM params
+undercovered badly: the "P10–P90" band contained only ~0.62–0.68 of held-out
+actuals. A one-off tuning pass (`src/tune.py`, objective = pinball loss,
+coverage tracked as a diagnostic) landed on strongly regularized params that
+measure 0.73–0.77 across the presets — close enough to the nominal 0.80 that
+no conformal post-hoc step was added. That was a decision made by
+measurement, not by default, and it is why the dashboard and this README
+cite measured coverage instead of claiming "80% confidence".
+
+**Known limitations, stated plainly:**
+
+- **Regime names are location-relative strata, not absolute weather
+  classes.** The naming heuristic ranks clusters within one location, so the
+  same label means different weather in different climates — at Phoenix the
+  cluster named "Transitional" actually has the *highest* mean irradiance
+  (7.6 kWh/m²/day vs 6.4 for its "Clear Sky"). Read the labels as ordered
+  strata for error analysis, not as meteorology.
+- **"Today" is really today−~6.** NASA POWER's near-real-time feed lags
+  ~5–7 days, so the most recent forecastable day trails the calendar by
+  about a week, and test windows end ~6 days before their fetch date.
+- **Per-location fetch-and-fit trades away cross-location learning.** Every
+  model sees only one point's ~11-year history: first requests to a new
+  location pay the fetch latency, and nothing transfers from data-rich to
+  data-poor regions. This was chosen deliberately over a global model (see
+  Future work) because the per-location fit runs in seconds and keeps the
+  scope honest.
+
+## Future work
+
+- **Global multi-location model** — one model conditioned on lat/lon/climate
+  with instant inference anywhere. Explicitly deferred: it needs a cleaned
+  multi-location training corpus and a model that conditions well on
+  geography, a meaningfully bigger and riskier undertaking than per-location
+  fits that already run in seconds.
+- **Free-text place-name input** — considered and deliberately not built, to
+  avoid a geocoding dependency; the map click / preset / manual lat/lon
+  inputs cover the demo. If wanted later it is a small addition (a free
+  geocoding API), not a rearchitecture.
+- **Sequence model (attention LSTM / TFT-lite)** — the phase-4 stretch
+  comparison of classical vs. deep learning; its go/no-go is still open. It
+  would not need to beat LightGBM to be a useful result, and would likely be
+  demo-locations-only, since training a deep model per request is not
+  feasible at interactive latency.
+
 ## Repo layout
 
 See `CLAUDE.md` for the full architecture guide. In short: `config.py` is the
