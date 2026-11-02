@@ -196,16 +196,16 @@ cite measured coverage instead of claiming "80% confidence".
 
 ## Future work
 
-- **Global multi-location model** — one model conditioned on lat/lon/climate
+- **Global multi-location model** : one model conditioned on lat/lon/climate
   with instant inference anywhere. Explicitly deferred: it needs a cleaned
   multi-location training corpus and a model that conditions well on
   geography, a meaningfully bigger and riskier undertaking than per-location
   fits that already run in seconds.
-- **Free-text place-name input** — considered and deliberately not built, to
+- **Free-text place-name input** : considered and deliberately not built, to
   avoid a geocoding dependency; the map click / preset / manual lat/lon
   inputs cover the demo. If wanted later it is a small addition (a free
   geocoding API), not a rearchitecture.
-- **Sequence model (attention LSTM / TFT-lite)** — the phase-4 stretch
+- **Sequence model (attention LSTM / TFT-lite)** : the phase-4 stretch
   comparison of classical vs. deep learning; its go/no-go is still open. It
   would not need to beat LightGBM to be a useful result, and would likely be
   demo-locations-only, since training a deep model per request is not
