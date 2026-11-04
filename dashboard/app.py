@@ -160,10 +160,18 @@ GLOSSARY = [
 app.layout = html.Div(
     className="page",
     children=[
-        html.H1("Solar Sunlight Forecast"),
-        html.P("Predicts how much sunlight a place will get each day, using NASA satellite "
-               "data. It also shows how sure it is, and how well it did on past days it "
-               "had not seen.", className="subtitle"),
+        html.Div(className="header", children=[
+            html.Div([
+                html.H1("Solar Sunlight Forecast"),
+                html.P("Predicts how much sunlight a place will get each day, using NASA "
+                       "satellite data. It also shows how sure it is, and how well it did "
+                       "on past days it had not seen.", className="subtitle"),
+            ]),
+            html.Button([html.Span("☾ Dark mode", className="to-dark"),
+                         html.Span("☀ Light mode", className="to-light")],
+                        id="theme-toggle", className="theme-toggle", n_clicks=0,
+                        title="Switch between light and dark"),
+        ]),
 
         html.H3("1. Choose a location", className="section-title"),
         html.P("Click the map, pick a preset city, or type coordinates, then press Get forecast.",
