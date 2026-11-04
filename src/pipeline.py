@@ -7,7 +7,9 @@ either caller — add new steps here.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -53,6 +55,16 @@ def check_sufficient_history(n_fit: int, n_test: int) -> None:
         )
 
 
+def slugify(name: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_")
+
+
+def seq_forecast_path(preset_name: str) -> Path:
+    """Where train.py saves a preset's LSTM forecasts and the dashboard reads
+    them back (the dashboard never imports torch)."""
+    return config.ARTIFACTS_DIR / f"seq_forecasts_{slugify(preset_name)}.parquet"
+
+
 # ---------------------------------------------------------------------------
 # Result container
 # ---------------------------------------------------------------------------
@@ -67,17 +79,40 @@ class LocationResult:
     metrics: dict = field(default_factory=dict)        # model + baseline metrics
     regime_breakdown: pd.DataFrame | None = None        # per-regime RMSE (P50)
     gbm: QuantileGBM | None = None       # fitted model (for explain.py / SHAP)
+    seq_forecasts: pd.DataFrame | None = None  # LSTM p10/p50/p90 (with_seq only)
 
 
 # ---------------------------------------------------------------------------
 # The one entry point
 # ---------------------------------------------------------------------------
-def run_location(lat: float, lon: float) -> LocationResult:
+def seq_comparison_metrics(
+    y: pd.Series, gbm_fc: pd.DataFrame, seq_fc: pd.DataFrame
+) -> dict:
+    """LSTM vs LightGBM on the days where the LSTM has a full window, so both
+    models are scored on identical rows."""
+    common = seq_fc["p50"].notna()
+    yc, g, s = y[common], gbm_fc[common], seq_fc[common]
+    out = {"seq_common_days": int(common.sum())}
+    for tag, fc in (("gbm_common", g), ("seq", s)):
+        out[f"{tag}_rmse"] = rmse(yc, fc["p50"])
+        out[f"{tag}_mae"] = mae(yc, fc["p50"])
+        out[f"{tag}_coverage"] = float(((yc >= fc["p10"]) & (yc <= fc["p90"])).mean())
+        for q in config.QUANTILES:
+            k = f"p{int(q * 100)}"
+            out[f"{tag}_pinball_{k}"] = pinball_loss(yc, fc[k], q)
+    return out
+
+
+def run_location(lat: float, lon: float, with_seq: bool = False) -> LocationResult:
     """Fetch (cached), engineer features, fit baselines + LightGBM, predict on
     the held-out test set, cluster regimes, compute metrics.
 
     Fit takes seconds; the NASA POWER fetch dominates latency on first request
     for a new location (the dashboard shows a loading state for this).
+
+    with_seq=True also fits the phase-4 attention LSTM (offline, demo locations
+    only: train.py). It stays off by default so the live path never pays for it
+    or imports torch.
     """
     train, val, test = data.load_location(lat, lon)
     fit_df = pd.concat([train, val])  # val reserved for future tuning passes
@@ -114,6 +149,13 @@ def run_location(lat: float, lon: float) -> LocationResult:
         "test_days": int(len(test)),
     }
 
+    seq_forecasts = None
+    if with_seq:
+        from src.model_seq import SeqModel  # lazy: torch is an optional extra
+
+        seq_forecasts = SeqModel().fit(fit_df).predict(test)
+        metrics.update(seq_comparison_metrics(y, forecasts, seq_forecasts))
+
     return LocationResult(
         lat=lat,
         lon=lon,
@@ -124,4 +166,5 @@ def run_location(lat: float, lon: float) -> LocationResult:
         metrics=metrics,
         regime_breakdown=per_regime_rmse(y, forecasts["p50"], regimes),
         gbm=gbm,
+        seq_forecasts=seq_forecasts,
     )

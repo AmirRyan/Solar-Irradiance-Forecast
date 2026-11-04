@@ -57,6 +57,24 @@ def memo_key(lat: float, lon: float) -> tuple[float, float]:
     return (round(lat, 2), round(lon, 2))
 
 
+def preset_name_for(lat: float, lon: float) -> str | None:
+    """The demo preset at this location (same 2dp identity as the caches), or
+    None. Only presets have LSTM forecasts."""
+    key = memo_key(lat, lon)
+    for name, loc in config.DEMO_LOCATIONS.items():
+        if memo_key(loc["lat"], loc["lon"]) == key:
+            return name
+    return None
+
+
+def align_seq_forecasts(saved, test_index):
+    """Saved LSTM forecasts reindexed to the current test window, or None if
+    they share no scored day with it. Caches refresh every ~10 days, so the
+    window can shift after train.py ran; only overlapping days are shown."""
+    aligned = saved.reindex(test_index)
+    return aligned if aligned["p50"].notna().any() else None
+
+
 class ResultMemo:
     """Thread-safe LRU memo of pipeline results, so revisiting a location in
     a live demo skips the refit. Presentation-side latency management only —

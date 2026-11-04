@@ -1,0 +1,3 @@
+# Phase-4 sequence model (src/model_seq.py). Optional: the core app, tests and
+# dashboard run without it.
+torch>=2.1

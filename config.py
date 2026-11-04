@@ -84,6 +84,22 @@ LGBM_PARAMS = {
     "verbosity": -1,
 }
 
+# Phase-4 attention LSTM (src/model_seq.py). Fixed sizes, not tuned per
+# location: the model is a comparison against LightGBM, trained offline for the
+# demo locations only.
+SEQ_PARAMS = {
+    "window": 30,            # days of feature history per prediction
+    "hidden": 32,
+    "dropout": 0.1,
+    "lr": 3e-3,
+    "weight_decay": 1e-4,
+    "batch_size": 128,
+    "max_epochs": 60,
+    "patience": 8,           # early-stopping patience, in epochs
+    "val_fraction": 0.15,    # chronological tail of the fit data
+    "seed": 0,
+}
+
 # Chronological split fractions (train / val / test)
 SPLIT_FRACTIONS = (0.7, 0.15, 0.15)
 

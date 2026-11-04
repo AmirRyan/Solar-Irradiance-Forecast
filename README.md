@@ -21,8 +21,9 @@ uncertainty bands, a weather-regime error breakdown, and SHAP explanations.
   (sunny/arid), Bergen (cloudy/wet), and Kuala Lumpur (equatorial/humid). A
   live demo never waits on the NASA POWER API.
 - **Models.** Persistence and Ridge baselines set the floor. LightGBM
-  quantile regression (P10/P50/P90) is the headline model. An attention
-  LSTM / TFT-lite comparison model is an optional stretch.
+  quantile regression (P10/P50/P90) is the headline model. A single-layer
+  LSTM with attention is a deep-learning comparison for the four presets
+  (see Sequence model vs LightGBM below); it is optional and trained offline.
 - **Analysis.** KMeans weather-regime clustering (Clear Sky, Overcast,
   Transitional, Winter Low) drives a per-regime RMSE breakdown. Locations
   without a real seasonal cycle, like Kuala Lumpur, get the neutral "Low
@@ -47,6 +48,10 @@ python dashboard/app.py
 # Run the test suite (synthetic data only, no network)
 python -m pytest tests/
 ```
+
+The LSTM needs PyTorch, which is an optional extra: `pip install -r
+requirements-seq.txt`, then rerun `python -m src.train`. Without it, training
+skips the LSTM and the dashboard shows LightGBM only.
 
 ![Location input: preset dropdown, manual lat/lon, and clickable map](docs/img/location-input.png)
 
@@ -145,6 +150,40 @@ request:
 
 ![SHAP panel: top-8 features by mean |SHAP| for the P50 model](docs/img/shap-phoenix.png)
 
+## Sequence model vs LightGBM
+
+The phase-4 comparison model is a single-layer LSTM (hidden size 32) with
+attention over a 30-day window of the same 16 engineered features, trained
+with pinball loss on P10/P50/P90. It is fit offline by `python -m src.train`
+for the four presets only, since training it per request is too slow for the
+live app. The dashboard draws its P50 as a dashed second line from the saved
+forecasts.
+
+This table comes from the 2026-11-04 run, after the caches refreshed, so its
+test windows differ from the tables above and the LightGBM figures differ
+slightly from them. Both models are scored on the same 644 days. Each cell
+reads LightGBM / LSTM.
+
+| Location | Test window | RMSE | MAE | Pinball P10 / P50 / P90 (LightGBM) | Pinball P10 / P50 / P90 (LSTM) | P10-P90 coverage |
+|---|---|---|---|---|---|---|
+| Bristol, UK | 2025-01-25 to 2026-10-30 | 1.022 / 1.152 | 0.793 / 0.892 | 0.187 / 0.396 / 0.144 | 0.192 / 0.446 / 0.161 | 0.728 / 0.789 |
+| Phoenix, AZ, USA | 2025-01-25 to 2026-10-30 | 0.922 / 1.033 | 0.553 / 0.639 | 0.202 / 0.277 / 0.085 | 0.239 / 0.320 / 0.094 | 0.728 / 0.792 |
+| Bergen, Norway | 2025-01-25 to 2026-10-30 | 1.032 / 1.114 | 0.725 / 0.804 | 0.150 / 0.363 / 0.149 | 0.150 / 0.402 / 0.172 | 0.753 / 0.758 |
+| Kuala Lumpur, MY | 2025-01-25 to 2026-10-30 | 0.820 / 0.872 | 0.616 / 0.664 | 0.170 / 0.308 / 0.112 | 0.182 / 0.332 / 0.122 | 0.734 / 0.773 |
+
+LightGBM wins on RMSE, MAE, and P50 pinball loss at all four locations, by 5
+to 12 percent on RMSE. The LSTM's band is closer to the nominal 0.80 coverage
+at Bristol, Phoenix, and Kuala Lumpur (0.77 to 0.79), but its median is less
+accurate, so the narrower-looking win on coverage does not make it the better
+forecast. In the dashboard the LSTM line is visibly smoother than LightGBM's
+and follows the seasonal curve while missing many day-to-day swings. A
+plausible reading is that the 16 features already summarize the recent past
+well, so a 30-day window adds little for a model trained on about 4,000
+daily rows per location. That reading is untested.
+
+The LSTM is the comparison the project set out to make, and it did not need to
+win. LightGBM stays the headline model.
+
 ## Error analysis
 
 ### Where LightGBM helps
@@ -211,11 +250,10 @@ confidence".
 - **Free-text place-name input:** not built, to avoid a geocoding dependency.
   The map click, preset, and manual lat/lon inputs cover the demo. Adding it
   later would take a free geocoding API and no rearchitecture.
-- **Sequence model (attention LSTM / TFT-lite):** the phase-4 stretch
-  comparison of classical and deep learning. The go/no-go is still open. It
-  would not need to beat LightGBM to be a useful result, and it would likely
-  run on the demo locations only, since training a deep model per request is
-  too slow for interactive use.
+- **TFT-lite variant:** the LSTM above has no input gating. Adding gated
+  variable selection would show whether that machinery helps on this data. It
+  would still run on the demo locations only, since training a deep model per
+  request is too slow for interactive use.
 
 ## Repo layout
 

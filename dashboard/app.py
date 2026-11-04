@@ -31,9 +31,11 @@ import requests
 from dash import Input, Output, State, ctx, dcc, html
 
 import config
-from dashboard.helpers import ResultMemo, resolve_location
+from dashboard.helpers import (
+    ResultMemo, align_seq_forecasts, preset_name_for, resolve_location,
+)
 from src.explain import global_importance, shap_values
-from src.pipeline import run_location
+from src.pipeline import run_location, seq_comparison_metrics, seq_forecast_path
 
 app = dash.Dash(__name__, title="Solar Irradiance Forecast")
 
@@ -47,6 +49,7 @@ REGIME_COLORS = {
     config.REGIME_LOW_SEASONALITY_NAME: "#4a3aa7",
 }
 P50_COLOR = "#2a78d6"
+SEQ_COLOR = "#d6402a"
 BAND_FILL = "rgba(42,120,214,0.18)"
 INK, MUTED = "#0b0b0b", "#52514e"
 
@@ -145,9 +148,19 @@ app.layout = html.Div(
 # ---------------------------------------------------------------------------
 # Figures
 # ---------------------------------------------------------------------------
-def _forecast_figure(result) -> go.Figure:
+def _load_seq(loc, result):
+    """Saved LSTM forecasts for a preset (written by train.py), aligned to the
+    current test window; None for any other location or before train.py ran."""
+    name = preset_name_for(*loc)
+    if name is None or not seq_forecast_path(name).exists():
+        return None
+    return align_seq_forecasts(pd.read_parquet(seq_forecast_path(name)), result.test.index)
+
+
+def _forecast_figure(result, seq=None) -> go.Figure:
     """Actual vs P50 with the P10–P90 band; one actuals trace per regime so
-    the legend carries regime identity."""
+    the legend carries regime identity. `seq` adds the LSTM P50 as a dashed
+    second line."""
     test, fc = result.test, result.forecasts
     y = test[config.TARGET_COL]
     # Reindex to daily so the line/band BREAK at missing days (recent rows
@@ -169,6 +182,10 @@ def _forecast_figure(result) -> go.Figure:
                                  showlegend=(i == 0), hoverinfo="skip"))
     fig.add_trace(go.Scatter(x=fc.index, y=fc["p50"], name="P50 forecast",
                              mode="lines", line={"color": P50_COLOR, "width": 2}))
+    if seq is not None:
+        fig.add_trace(go.Scatter(x=seq.index, y=seq["p50"], name="LSTM P50",
+                                 mode="lines",
+                                 line={"color": SEQ_COLOR, "width": 2, "dash": "dash"}))
     for regime in result.regimes.unique():
         mask = result.regimes == regime
         fig.add_trace(go.Scatter(
@@ -222,7 +239,7 @@ def _shap_figure(result) -> go.Figure:
     return fig
 
 
-def _metrics_bar(result) -> html.Div:
+def _metrics_bar(result, seq=None) -> html.Div:
     m = result.metrics
     y = result.test[config.TARGET_COL]
     coverage = float(((y >= result.forecasts["p10"]) & (y <= result.forecasts["p90"])).mean())
@@ -230,22 +247,36 @@ def _metrics_bar(result) -> html.Div:
     def tile(label, value):
         return html.Div([html.B(label), html.Div(value)])
 
+    tiles = [
+        tile("LightGBM P50 RMSE", f"{m['gbm_p50_rmse']:.3f}"),
+        tile("Ridge RMSE", f"{m['ridge_rmse']:.3f}"),
+        tile("Persistence RMSE", f"{m['persistence_rmse']:.3f}"),
+        tile("LightGBM MAE", f"{m['gbm_p50_mae']:.3f}"),
+        tile("Pinball P10/P50/P90",
+             f"{m['gbm_pinball_p10']:.3f} / {m['gbm_pinball_p50']:.3f} / "
+             f"{m['gbm_pinball_p90']:.3f}"),
+        tile("P10–P90 coverage", f"{coverage:.0%}"),
+        tile("Test days", str(m["test_days"])),
+    ]
+    note = None
+    if seq is not None:
+        c = seq_comparison_metrics(y, result.forecasts, seq)
+        tiles[4:4] = [
+            tile("LSTM P50 RMSE", f"{c['seq_rmse']:.3f}"),
+            tile("LSTM MAE", f"{c['seq_mae']:.3f}"),
+        ]
+        note = html.Div(
+            f"LSTM (dashed) is a comparison model, trained offline by train.py; its "
+            f"forecasts cover {c['seq_common_days']} of the days shown. On those same "
+            f"days LightGBM RMSE is {c['gbm_common_rmse']:.3f}.",
+            style={"fontSize": "12px", "color": MUTED},
+        )
     # Baselines shown alongside the headline number, always.
-    return html.Div(
-        style={"display": "flex", "gap": "24px", "padding": "12px 0",
-               "flexWrap": "wrap"},
-        children=[
-            tile("LightGBM P50 RMSE", f"{m['gbm_p50_rmse']:.3f}"),
-            tile("Ridge RMSE", f"{m['ridge_rmse']:.3f}"),
-            tile("Persistence RMSE", f"{m['persistence_rmse']:.3f}"),
-            tile("LightGBM MAE", f"{m['gbm_p50_mae']:.3f}"),
-            tile("Pinball P10/P50/P90",
-                 f"{m['gbm_pinball_p10']:.3f} / {m['gbm_pinball_p50']:.3f} / "
-                 f"{m['gbm_pinball_p90']:.3f}"),
-            tile("P10–P90 coverage", f"{coverage:.0%}"),
-            tile("Test days", str(m["test_days"])),
-        ],
-    )
+    return html.Div([
+        html.Div(tiles, style={"display": "flex", "gap": "24px",
+                               "padding": "12px 0", "flexWrap": "wrap"}),
+        note,
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -298,10 +329,11 @@ def update(_, preset, map_click, lat, lon):
     except Exception as e:  # last resort: never show a traceback in a demo
         return f"Unexpected error ({type(e).__name__}): {e}", *no5
 
+    seq = _load_seq(loc, result)
     return (
         "",
-        _metrics_bar(result),
-        _forecast_figure(result),
+        _metrics_bar(result, seq),
+        _forecast_figure(result, seq),
         _residuals_figure(result),
         _shap_figure(result),
         make_map_figure(selected=loc),

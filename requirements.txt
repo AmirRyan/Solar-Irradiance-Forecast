@@ -9,5 +9,4 @@ matplotlib>=3.8   # SHAP bar-plot artifacts (explain.py)
 plotly>=5.18
 dash>=2.15
 pytest>=8.0
-# Phase-4 stretch only (model_seq.py) — uncomment if/when built:
-# torch>=2.1
+# Phase-4 sequence model (model_seq.py) is optional: pip install -r requirements-seq.txt

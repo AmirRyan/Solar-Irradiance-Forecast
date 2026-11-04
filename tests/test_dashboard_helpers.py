@@ -1,7 +1,13 @@
 """Pure dashboard-layer helpers (no dash import, no server, no network)."""
 
 import config
-from dashboard.helpers import ResultMemo, memo_key, resolve_location, validate_latlon
+import numpy as np
+import pandas as pd
+
+from dashboard.helpers import (
+    ResultMemo, align_seq_forecasts, memo_key, preset_name_for, resolve_location,
+    validate_latlon,
+)
 from src.pipeline import MIN_FIT_DAYS, MIN_TEST_DAYS, check_sufficient_history
 
 import pytest
@@ -82,3 +88,23 @@ def test_history_guard_passes_on_normal_history():
 def test_history_guard_raises_readably(n_fit, n_test):
     with pytest.raises(ValueError, match="usable days of history"):
         check_sufficient_history(n_fit, n_test)
+
+
+# --- LSTM overlay helpers ---------------------------------------------------
+def test_preset_name_for_matches_presets_at_cache_precision():
+    for name, loc in config.DEMO_LOCATIONS.items():
+        assert preset_name_for(loc["lat"], loc["lon"]) == name
+        assert preset_name_for(loc["lat"] + 0.0001, loc["lon"]) == name  # same 2dp key
+    assert preset_name_for(-1.29, 36.82) is None  # Nairobi: not a preset
+
+
+def test_align_seq_forecasts_overlap_and_disjoint():
+    saved = pd.DataFrame(
+        {"p10": 1.0, "p50": 2.0, "p90": 3.0},
+        index=pd.date_range("2024-01-01", periods=10),
+    )
+    shifted = pd.date_range("2024-01-06", periods=10)  # half overlaps
+    aligned = align_seq_forecasts(saved, shifted)
+    assert aligned.index.equals(shifted)
+    assert aligned["p50"].notna().sum() == 5
+    assert align_seq_forecasts(saved, pd.date_range("2025-01-01", periods=5)) is None
