@@ -154,10 +154,11 @@ request:
 
 The phase-4 comparison model is a single-layer LSTM (hidden size 32) with
 attention over a 30-day window of the same 16 engineered features, trained
-with pinball loss on P10/P50/P90. It is fit offline by `python -m src.train`
-for the four presets only, since training it per request is too slow for the
-live app. The dashboard draws its P50 as a dashed second line from the saved
-forecasts.
+with pinball loss on P10/P50/P90. For the four presets it is fit offline by
+`python -m src.train` and the dashboard reads the saved forecasts. For custom
+locations the dashboard fits it live, which adds about 5 seconds on top of the
+LightGBM fit and needs the optional torch install. Either way its P50 is drawn
+as a dashed second line.
 
 This table comes from the 2026-11-04 run, after the caches refreshed, so its
 test windows differ from the tables above and the LightGBM figures differ

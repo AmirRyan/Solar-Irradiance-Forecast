@@ -17,6 +17,7 @@ per-request in the callback — measured ~0.2s with the tuned params.
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 import threading
 from pathlib import Path
@@ -54,6 +55,8 @@ BAND_FILL = "rgba(42,120,214,0.18)"
 INK, MUTED = "#0b0b0b", "#52514e"
 
 _memo = ResultMemo(maxsize=20)
+# Only probed, never imported here: torch loads lazily inside run_location.
+HAS_TORCH = importlib.util.find_spec("torch") is not None
 _pipeline_lock = threading.Lock()  # serialize concurrent fetch/fits
 
 
@@ -149,8 +152,11 @@ app.layout = html.Div(
 # Figures
 # ---------------------------------------------------------------------------
 def _load_seq(loc, result):
-    """Saved LSTM forecasts for a preset (written by train.py), aligned to the
-    current test window; None for any other location or before train.py ran."""
+    """LSTM forecasts for this request, aligned to the current test window.
+    Custom locations carry theirs on the result (fit live); presets read the
+    ones train.py saved. None when torch is absent or train.py has not run."""
+    if result.seq_forecasts is not None:
+        return result.seq_forecasts
     name = preset_name_for(*loc)
     if name is None or not seq_forecast_path(name).exists():
         return None
@@ -266,7 +272,8 @@ def _metrics_bar(result, seq=None) -> html.Div:
             tile("LSTM MAE", f"{c['seq_mae']:.3f}"),
         ]
         note = html.Div(
-            f"LSTM (dashed) is a comparison model, trained offline by train.py; its "
+            f"LSTM (dashed) is a comparison model, "
+            f"{'fit just now for this location' if result.seq_forecasts is not None else 'trained offline by train.py'}; its "
             f"forecasts cover {c['seq_common_days']} of the days shown. On those same "
             f"days LightGBM RMSE is {c['gbm_common_rmse']:.3f}.",
             style={"fontSize": "12px", "color": MUTED},
@@ -315,7 +322,10 @@ def update(_, preset, map_click, lat, lon):
             with _pipeline_lock:
                 result = _memo.get(*loc)  # a queued duplicate may have filled it
                 if result is None:
-                    result = run_location(*loc)
+                    # Presets read the LSTM train.py saved; custom locations fit
+                    # it live (~5s) when torch is installed.
+                    live_seq = HAS_TORCH and preset_name_for(*loc) is None
+                    result = run_location(*loc, with_seq=live_seq)
                     _memo.put(*loc, result)
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else "?"

@@ -110,9 +110,9 @@ def run_location(lat: float, lon: float, with_seq: bool = False) -> LocationResu
     Fit takes seconds; the NASA POWER fetch dominates latency on first request
     for a new location (the dashboard shows a loading state for this).
 
-    with_seq=True also fits the phase-4 attention LSTM (offline, demo locations
-    only: train.py). It stays off by default so the live path never pays for it
-    or imports torch.
+    with_seq=True also fits the phase-4 attention LSTM (~5s): train.py for the
+    presets, the dashboard for custom locations. It stays off by default so
+    callers without torch never import it.
     """
     train, val, test = data.load_location(lat, lon)
     fit_df = pd.concat([train, val])  # val reserved for future tuning passes

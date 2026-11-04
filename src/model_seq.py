@@ -77,6 +77,7 @@ class SeqModel:
     # -- fit ----------------------------------------------------------------
     def fit(self, train: pd.DataFrame) -> "SeqModel":
         p = self.params
+        torch.set_num_threads(1)  # per calling thread: the dashboard fits in a worker
         torch.manual_seed(p["seed"])
         feats = train[config.FEATURES].to_numpy(dtype=np.float64)
         self._mu = feats.mean(axis=0)
@@ -126,6 +127,7 @@ class SeqModel:
         """Columns p10/p50/p90 indexed like `df`; NaN where the row has no full
         contiguous window. `context` supplies the history before `df` (default:
         the tail of the fit data, used only when `df` starts after it)."""
+        torch.set_num_threads(1)
         if context is None and self._tail is not None \
                 and len(df) and df.index.min() > self._tail.index.max():
             context = self._tail
