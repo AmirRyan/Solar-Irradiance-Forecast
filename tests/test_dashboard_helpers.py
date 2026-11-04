@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 
 from dashboard.helpers import (
-    ResultMemo, align_seq_forecasts, memo_key, preset_name_for, resolve_location,
-    validate_latlon,
+    ResultMemo, align_seq_forecasts, memo_key, plain_feature_name, preset_name_for,
+    resolve_location, summary_text, validate_latlon,
 )
 from src.pipeline import MIN_FIT_DAYS, MIN_TEST_DAYS, check_sufficient_history
 
@@ -108,3 +108,34 @@ def test_align_seq_forecasts_overlap_and_disjoint():
     assert aligned.index.equals(shifted)
     assert aligned["p50"].notna().sum() == 5
     assert align_seq_forecasts(saved, pd.date_range("2025-01-01", periods=5)) is None
+
+
+# --- plain-English labels ---------------------------------------------------
+def test_every_feature_gets_a_plain_name():
+    """No raw column name may leak into the chart: a new feature in config
+    should fail here until it has a readable label."""
+    for col in config.FEATURES:
+        assert plain_feature_name(col) != col, col
+
+
+def test_plain_feature_names_are_distinct():
+    names = [plain_feature_name(c) for c in config.FEATURES]
+    assert len(set(names)) == len(names)
+
+
+def test_plain_feature_name_unknown_falls_back():
+    assert plain_feature_name("brand_new_feature") == "brand_new_feature"
+
+
+def test_summary_text_reports_the_numbers():
+    s = summary_text("Bristol, UK", mae=0.8, persistence_mae=1.0, coverage=0.73,
+                     mean_irradiance=4.0, test_days=644)
+    joined = " ".join(s)
+    assert "Bristol, UK" in joined and "644" in joined
+    assert "20% smaller" in joined and "73%" in joined
+
+
+def test_summary_text_says_larger_when_model_loses():
+    s = summary_text("X", mae=1.2, persistence_mae=1.0, coverage=0.8,
+                     mean_irradiance=4.0, test_days=10)
+    assert "20% larger" in s[1]

@@ -1,0 +1,108 @@
+/* Dashboard theme. Dash serves everything in dashboard/assets/ automatically.
+   Colors are tokens on :root, redefined for dark mode; Dash's own components
+   (dropdown, inputs) read the --Dash-* variables, remapped to the same tokens. */
+:root {
+  --bg: #f6f6f4;
+  --card: #ffffff;
+  --ink: #0b0b0b;
+  --muted: #5d5c58;
+  --line: rgba(0, 0, 0, 0.10);
+  --accent: #2a78d6;
+  --error: #b00020;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101113;
+    --card: #1a1b1e;
+    --ink: #ececea;
+    --muted: #a1a09b;
+    --line: rgba(255, 255, 255, 0.12);
+    --accent: #5b9bf0;
+    --error: #ff8a9b;
+    --shadow: none;
+    color-scheme: dark;
+  }
+}
+
+:root {
+  --Dash-Fill-Inverse-Strong: var(--card);
+  --Dash-Fill-Interactive-Strong: var(--accent);
+  --Dash-Fill-Interactive-Weak: color-mix(in srgb, var(--accent) 14%, transparent);
+  --Dash-Fill-Primary-Hover: color-mix(in srgb, var(--accent) 14%, transparent);
+  --Dash-Fill-Primary-Active: color-mix(in srgb, var(--accent) 22%, transparent);
+  --Dash-Text-Strong: var(--ink);
+  --Dash-Text-Primary: var(--ink);
+  --Dash-Text-Weak: var(--muted);
+  --Dash-Stroke-Strong: var(--line);
+  --Dash-Stroke-Weak: var(--line);
+}
+
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+
+.page { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px; }
+.page h1 { font-size: 24px; font-weight: 650; margin: 0 0 4px; }
+.subtitle { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: var(--shadow); padding: 12px 14px; margin-bottom: 14px; }
+
+.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.controls .preset { width: 240px; height: 38px; box-sizing: border-box; background: var(--card);
+  color: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
+.controls .dash-input-container { width: 150px; height: 38px; box-sizing: border-box;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--card); overflow: hidden; }
+.controls .dash-input-element { background: var(--card); color: var(--ink); border: 0;
+  font-size: 14px; padding: 0 10px; min-width: 0; }
+.controls .dash-input-stepper { background: transparent; color: var(--muted); border: 0; cursor: pointer; }
+.controls .dash-input-container:focus-within, .controls .preset:focus-visible,
+#go:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+#go { height: 38px; padding: 0 20px; border: 0; border-radius: 8px;
+  background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
+#go:hover:not(:disabled) { filter: brightness(1.08); }
+#go:disabled { opacity: 0.5; cursor: progress; }
+
+.map-card { padding: 6px; overflow: hidden; }
+
+.status { color: var(--error); font-weight: 600; padding: 4px 0; }
+.status:empty { display: none; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; box-shadow: var(--shadow); }
+.tile .label { font-size: 12px; color: var(--muted); }
+.tile .value { font-size: 20px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tile.headline { border-color: var(--accent); }
+.tile.seq .value { color: #d6402a; }
+@media (prefers-color-scheme: dark) { .tile.seq .value { color: #ff7a63; } }
+.note { font-size: 12px; color: var(--muted); margin: 0 0 12px 2px; }
+
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+.two-col .card { margin-bottom: 0; }
+
+/* Plotly draws on transparent backgrounds; recolor its text for the theme. */
+.js-plotly-plot .plotly text { fill: var(--ink) !important; }
+.js-plotly-plot .plotly .hoverlayer text { fill: #f2f2f0 !important; }
+.js-plotly-plot .plotly .gtitle { font-weight: 600; }
+
+.controls .preset .dash-dropdown-placeholder, .controls .preset [class*="placeholder"] { color: var(--muted); }
+
+/* Plain-English layer: headings, summary, tile hints, glossary */
+.section-title { font-size: 17px; font-weight: 650; margin: 22px 0 2px; }
+.section-sub { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 10px; max-width: 760px; }
+.summary h3 { margin: 0 0 6px; font-size: 18px; }
+.summary p { margin: 0 0 6px; font-size: 15px; line-height: 1.55; }
+.summary p:last-child { margin-bottom: 0; }
+.tile .label { font-size: 13px; font-weight: 600; color: var(--ink); }
+.tile .hint { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+.tile .tech { font-size: 11px; color: var(--muted); opacity: 0.8; margin-top: 6px; font-family: ui-monospace, Menlo, monospace; }
+.tiles { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.glossary { margin-top: 22px; }
+.glossary summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+.glossary dl { margin: 12px 0 0; display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 8px 16px; }
+.glossary dt { font-weight: 600; font-size: 14px; }
+.glossary dd { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+@media (max-width: 640px) { .glossary dl { grid-template-columns: 1fr; gap: 2px; } .glossary dd { margin-bottom: 8px; } }

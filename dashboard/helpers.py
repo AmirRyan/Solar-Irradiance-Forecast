@@ -7,6 +7,7 @@ the single code path both callers share).
 
 from __future__ import annotations
 
+import re
 import threading
 from collections import OrderedDict
 
@@ -103,3 +104,50 @@ class ResultMemo:
 
     def __len__(self) -> int:
         return len(self._data)
+
+
+# ---------------------------------------------------------------------------
+# Plain-English presentation helpers
+# ---------------------------------------------------------------------------
+_WINDOW_WORDS = {1: "yesterday", 2: "2 days ago", 3: "3 days ago", 7: "a week ago",
+                 14: "2 weeks ago"}
+
+
+def plain_feature_name(col: str) -> str:
+    """Readable label for an engineered feature column (the raw name is still
+    shown on hover). Falls back to the column name for anything unknown, so a
+    new feature never breaks the chart — it just stays technical."""
+    target = config.TARGET_COL
+    if m := re.fullmatch(rf"{target}_lag(\d+)", col):
+        return f"Sunlight {_WINDOW_WORDS.get(int(m[1]), f'{m[1]} days ago')}"
+    if m := re.fullmatch(rf"{target}_roll(\d+)_mean", col):
+        return f"Average sunlight, last {m[1]} days"
+    if m := re.fullmatch(rf"{target}_roll(\d+)_std", col):
+        return f"Day-to-day swings in sunlight, last {m[1]} days"
+    fixed = {
+        "clearness_index_lag1": "Clear vs cloudy sky yesterday",
+        "T2M_lag1": "Temperature yesterday",
+        "RH2M_lag1": "Humidity yesterday",
+        "WS2M_lag1": "Wind speed yesterday",
+        "PRECTOTCORR_lag1": "Rain yesterday",
+        "doy_sin": "Time of year (1 of 2)",
+        "doy_cos": "Time of year (2 of 2)",
+    }
+    return fixed.get(col, col)
+
+
+def summary_text(place: str, mae: float, persistence_mae: float, coverage: float,
+                 mean_irradiance: float, test_days: int) -> list[str]:
+    """Three plain sentences summarising a result, for the headline card."""
+    pct = mae / mean_irradiance if mean_irradiance > 0 else float("nan")
+    better = (persistence_mae - mae) / persistence_mae if persistence_mae > 0 else 0.0
+    return [
+        f"For {place}, the model was tested on {test_days} past days it had never "
+        f"seen. On average its guess was off by {mae:.2f} kWh/m² per day, "
+        f"about {pct:.0%} of the average daily sunlight ({mean_irradiance:.1f}).",
+        f"That is {abs(better):.0%} {'smaller' if better >= 0 else 'larger'} than "
+        f"simply guessing \u201ctomorrow equals today\u201d, which was off by "
+        f"{persistence_mae:.2f}.",
+        f"The shaded range is meant to contain the real value 8 days out of 10; "
+        f"it actually did on {coverage:.0%} of days.",
+    ]
