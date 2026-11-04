@@ -5,3 +5,4 @@ cache/*.parquet
 artifacts/
 .venv/
 .DS_Store
+.claude/
