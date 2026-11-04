@@ -1,12 +1,44 @@
 # Solar Irradiance Forecasting
 
 Probabilistic solar irradiance forecasting for any location on Earth, built on
-[NASA POWER](https://power.larc.nasa.gov/) daily data. Pick a point by map
-click, preset, or manual lat/lon and the app returns a next-day P10/P50/P90
-forecast fit on that location's own history. It also shows baselines,
-uncertainty bands, a weather-regime error breakdown, and SHAP explanations.
+[NASA POWER](https://power.larc.nasa.gov/) daily data. Pick a point on a 3D
+globe, from a preset, or by typing lat/lon and the app returns a next-day
+P10/P50/P90 forecast fit on that location's own history. It also shows
+baselines, uncertainty bands, a weather-type error breakdown, and SHAP
+explanations, all written up in plain English for someone who has never seen
+a forecasting metric.
 
-![Dashboard: Bristol forecast with P10-P90 band and regime-colored actuals](docs/img/forecast-bristol.png)
+![Dashboard: Bristol result with the headline error, model comparison scale, and forecast chart](docs/img/forecast-bristol.png)
+
+## The dashboard
+
+The page has two columns. The left rail holds the question: a preset
+dropdown, latitude and longitude boxes, and a globe you can drag and click.
+It stays on screen while you scroll, so you can change location without losing
+your place. The right column holds the answer, top to bottom:
+
+- **Headline.** One large number, the average miss in kWh/m² per day, with a
+  chip comparing it to simply repeating yesterday's value and three plain
+  sentences that say what it means.
+- **Model comparison.** LightGBM, Ridge, the LSTM, and repeat-yesterday placed
+  on one axis by overall error (RMSE), so you can see at a glance which is
+  lowest.
+- **Numbers behind it.** Coverage of the shaded range, the range score
+  (pinball loss), days tested, and the LSTM's average miss. Each tile has a
+  plain label, a one-line hint, and the technical name in small type.
+- **Forecast vs actual.** Daily actuals coloured by weather type, the P50
+  line, the P10-P90 band, and the LSTM as a dashed line. Zoom buttons cover
+  1 month, 3 months, 6 months, 1 year, and everything, and hovering a day
+  shows all values at once.
+- **Weather ribbon.** One cell per test day coloured by weather type, which
+  doubles as a key for the chart colours.
+- **Misses and drivers.** Residuals by weather type, and a SHAP bar chart
+  whose features carry readable names ("Sunlight yesterday") with the raw
+  column name on hover.
+- **Glossary.** A collapsible list defining every term on the page.
+
+A button in the header switches between light and dark. With no saved choice
+it follows the operating system setting.
 
 ## How it works
 
@@ -22,8 +54,9 @@ uncertainty bands, a weather-regime error breakdown, and SHAP explanations.
   live demo never waits on the NASA POWER API.
 - **Models.** Persistence and Ridge baselines set the floor. LightGBM
   quantile regression (P10/P50/P90) is the headline model. A single-layer
-  LSTM with attention is a deep-learning comparison for the four presets
-  (see Sequence model vs LightGBM below); it is optional and trained offline.
+  LSTM with attention is a deep-learning comparison (see Sequence model vs
+  LightGBM below). It needs the optional PyTorch install; presets use
+  forecasts saved by the training script and custom locations fit it live.
 - **Analysis.** KMeans weather-regime clustering (Clear Sky, Overcast,
   Transitional, Winter Low) drives a per-regime RMSE breakdown. Locations
   without a real seasonal cycle, like Kuala Lumpur, get the neutral "Low
@@ -53,12 +86,12 @@ The LSTM needs PyTorch, which is an optional extra: `pip install -r
 requirements-seq.txt`, then rerun `python -m src.train`. Without it, training
 skips the LSTM and the dashboard shows LightGBM only.
 
-![Location input: preset dropdown, manual lat/lon, and clickable map](docs/img/location-input.png)
+![Location input: preset dropdown, manual lat/lon, and a clickable 3D globe](docs/img/location-input.png)
 
 The uncertainty band is the model's P10-P90 quantile forecast. Its measured
 coverage on held-out data is 0.73-0.77 against a nominal 0.80. The dashboard
-shows that figure in the caption and in a per-location coverage tile instead
-of calling the band an "80% confidence interval".
+shows that figure in a "Days inside the range" tile instead of calling the
+band an "80% confidence interval".
 
 ## Results
 
@@ -148,7 +181,7 @@ refit per location (the error analysis below covers the naming caveats).
 artifacts into `artifacts/`. The dashboard also computes a SHAP panel on each
 request:
 
-![SHAP panel: top-8 features by mean |SHAP| for the P50 model](docs/img/shap-phoenix.png)
+![SHAP panel for Phoenix: the eight features that move the P50 forecast most](docs/img/shap-phoenix.png)
 
 ## Sequence model vs LightGBM
 
@@ -176,7 +209,7 @@ LightGBM wins on RMSE, MAE, and P50 pinball loss at all four locations, by 5
 to 12 percent on RMSE. The LSTM's band is closer to the nominal 0.80 coverage
 at Bristol, Phoenix, and Kuala Lumpur (0.77 to 0.79), but its median is less
 accurate, so the narrower-looking win on coverage does not make it the better
-forecast. In the dashboard the LSTM line is visibly smoother than LightGBM's
+forecast. In the dashboard the dashed LSTM line is visibly smoother than LightGBM's
 and follows the seasonal curve while missing many day-to-day swings. A
 plausible reading is that the 16 features already summarize the recent past
 well, so a 30-day window adds little for a model trained on about 4,000
@@ -249,7 +282,7 @@ confidence".
   geography, which is bigger and riskier than per-location fits that already
   run in seconds.
 - **Free-text place-name input:** not built, to avoid a geocoding dependency.
-  The map click, preset, and manual lat/lon inputs cover the demo. Adding it
+  The globe click, preset, and manual lat/lon inputs cover the demo. Adding it
   later would take a free geocoding API and no rearchitecture.
 - **TFT-lite variant:** the LSTM above has no input gating. Adding gated
   variable selection would show whether that machinery helps on this data. It

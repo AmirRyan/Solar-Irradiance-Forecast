@@ -116,7 +116,7 @@ html, body { margin: 0; background: var(--paper); color: var(--ink);
 .hero-copy + .hero-copy { margin-top: 6px; color: var(--graphite); }
 
 .scale-title { font-size: 12px; color: var(--graphite); margin: 24px 0 2px; }
-.scale { position: relative; height: 92px; margin: 0 12px; }
+.scale { position: relative; height: 112px; margin: 0 12px 4px; }
 .scale-axis { position: absolute; left: 0; right: 0; top: 46px; height: 1px; background: var(--rule-strong); }
 .scale-tick { position: absolute; top: 42px; width: 1px; height: 9px; background: var(--rule-strong); }
 .scale-tick-label { position: absolute; top: 54px; transform: translateX(-50%); font-size: 11px; color: var(--haze); font-variant-numeric: tabular-nums; }
