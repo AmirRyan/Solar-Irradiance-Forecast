@@ -7,6 +7,7 @@ the single code path both callers share).
 
 from __future__ import annotations
 
+import math
 import re
 import threading
 from collections import OrderedDict
@@ -151,3 +152,30 @@ def summary_text(place: str, mae: float, persistence_mae: float, coverage: float
         f"The shaded range is meant to contain the real value 8 days out of 10; "
         f"it actually did on {coverage:.0%} of days.",
     ]
+
+
+def error_scale(errors: dict[str, float]) -> dict:
+    """Layout for the one-axis model comparison: a padded [lo, hi] range over
+    the given errors snapped to a round tick step (so the axis reads 1.00, 1.05
+    rather than 0.99, 1.06), and each model's position as a percentage along
+    it. Labels alternate above/below in value order so neighbours never share a
+    side. Pure data; the dashboard draws it."""
+    if not errors:
+        raise ValueError("error_scale needs at least one model")
+    vals = list(errors.values())
+    span = max(max(vals) - min(vals), 0.1)
+    raw_lo, raw_hi = min(vals) - 0.15 * span, max(vals) + 0.15 * span
+    step = next(s for s in (0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0)
+                if (raw_hi - raw_lo) / s <= 6)
+    lo = max(0.0, math.floor(raw_lo / step) * step)
+    hi = math.ceil(raw_hi / step) * step
+    n = round((hi - lo) / step)
+    pct = lambda v: 100.0 * (v - lo) / (hi - lo)
+    ticks = [lo + i * step for i in range(n + 1)]
+    points = [
+        {"name": k, "value": v, "pct": pct(v), "above": i % 2 == 0}
+        for i, (k, v) in enumerate(sorted(errors.items(), key=lambda kv: kv[1]))
+    ]
+    return {"lo": lo, "hi": hi, "step": step,
+            "ticks": [{"value": t, "pct": pct(t)} for t in ticks],
+            "points": points}

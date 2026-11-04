@@ -33,26 +33,28 @@ from dash import Input, Output, State, ctx, dcc, html
 
 import config
 from dashboard.helpers import (
-    ResultMemo, align_seq_forecasts, plain_feature_name, preset_name_for,
+    ResultMemo, align_seq_forecasts, error_scale, plain_feature_name, preset_name_for,
     resolve_location, summary_text,
 )
 from src.explain import global_importance, shap_values
 from src.pipeline import run_location, seq_comparison_metrics, seq_forecast_path
 
-app = dash.Dash(__name__, title="Solar Sunlight Forecast")
+app = dash.Dash(__name__, title="Solar Irradiance Forecast")
 
 # Regime identity colors (Winter Low / Low Irradiance are mutually exclusive
 # alternatives of the same slot, so they share one).
 REGIME_COLORS = {
-    "Clear Sky": "#eda100",
-    "Overcast": "#8a8f98",
-    "Transitional": "#1baf7a",
-    "Winter Low": "#4a3aa7",
-    config.REGIME_LOW_SEASONALITY_NAME: "#4a3aa7",
+    "Clear Sky": "#e9a93a",      # noon
+    "Transitional": "#7fa6c4",   # haze
+    "Overcast": "#8f99a3",       # slate
+    "Winter Low": "#6a6fb5",     # twilight
+    config.REGIME_LOW_SEASONALITY_NAME: "#6a6fb5",
 }
-P50_COLOR = "#2a78d6"
-SEQ_COLOR = "#d6402a"
-BAND_FILL = "rgba(42,120,214,0.22)"
+NOON = "#e9a93a"                 # the one UI accent (stylesheet: --noon)
+P50_COLOR = "#4f86c6"            # LightGBM series
+SEQ_COLOR = "#d9604a"            # LSTM series
+OTHER_MODEL_COLOR = "#8f99a3"    # baselines
+BAND_FILL = "rgba(79,134,198,0.22)"
 GRID = "rgba(128,128,128,0.22)"
 # Legends sit under the plot so a wrapped legend never collides with the title.
 _LEGEND_BELOW = {"orientation": "h", "yanchor": "top", "y": -0.16, "x": 0,
@@ -92,16 +94,20 @@ _pipeline_lock = threading.Lock()  # serialize concurrent fetch/fits
 # Map: an invisible 2° grid of click targets — clickData only fires on trace
 # points, so an empty Scattergeo would make map clicks dead.
 # ---------------------------------------------------------------------------
-_GRID_LATS, _GRID_LONS = np.meshgrid(np.arange(-88, 89, 2.0), np.arange(-180, 179, 2.0))
+_GRID_LATS, _GRID_LONS = np.meshgrid(np.arange(-84, 85, 3.0), np.arange(-180, 180, 3.0))
+_DEFAULT_VIEW = {"lon": 10, "lat": 30}  # Europe/Africa facing, where most presets sit
 
 
 def make_map_figure(selected: tuple[float, float] | None = None) -> go.Figure:
+    """Draggable globe. Clicks land on an invisible 3-degree grid (clickData only
+    fires on trace points); ~6.8k points keeps rotation smooth. A new selection
+    turns the globe to face it; otherwise the user's rotation is left alone."""
     fig = go.Figure(
         go.Scattergeo(
             lat=_GRID_LATS.ravel(),
             lon=_GRID_LONS.ravel(),
             mode="markers",
-            marker={"size": 10, "color": "rgba(0,0,0,0)"},
+            marker={"size": 12, "color": "rgba(0,0,0,0)"},
             hovertemplate="%{lat:.0f}°, %{lon:.0f}°<extra>click to forecast</extra>",
             showlegend=False,
         )
@@ -110,21 +116,28 @@ def make_map_figure(selected: tuple[float, float] | None = None) -> go.Figure:
         fig.add_trace(
             go.Scattergeo(
                 lat=[selected[0]], lon=[selected[1]], mode="markers",
-                marker={"size": 12, "color": P50_COLOR, "symbol": "circle",
+                marker={"size": 12, "color": NOON, "symbol": "circle",
                         "line": {"width": 2, "color": "white"}},
                 hovertemplate="%{lat:.2f}°, %{lon:.2f}°<extra>selected</extra>",
                 showlegend=False,
             )
         )
+    view = {"lon": selected[1], "lat": selected[0]} if selected else _DEFAULT_VIEW
+    edge = "rgba(128,128,128,0.55)"
     fig.update_layout(
-        geo={"projection_type": "natural earth", "showcountries": True,
-             "showland": True, "landcolor": "rgba(128,128,128,0.22)",
-             "countrycolor": "rgba(128,128,128,0.55)", "coastlinecolor": "rgba(128,128,128,0.55)",
-             "showocean": False, "showlakes": False, "bgcolor": "rgba(0,0,0,0)"},
-        height=260,
+        geo={"projection": {"type": "orthographic", "rotation": view},
+             "showland": True, "landcolor": "rgba(128,128,128,0.38)",
+             "showocean": True, "oceancolor": "rgba(128,128,128,0.10)",
+             "showcountries": True, "countrycolor": edge, "coastlinecolor": edge,
+             "showlakes": False, "showframe": True, "framecolor": edge,
+             "lataxis": {"showgrid": True, "gridcolor": "rgba(128,128,128,0.22)", "dtick": 30},
+             "lonaxis": {"showgrid": True, "gridcolor": "rgba(128,128,128,0.22)", "dtick": 30},
+             "bgcolor": "rgba(0,0,0,0)"},
+        height=300,
         margin={"l": 0, "r": 0, "t": 0, "b": 0},
         paper_bgcolor="rgba(0,0,0,0)",
-        uirevision="keep-zoom",  # don't reset the user's pan/zoom on update
+        dragmode="pan",
+        uirevision=f"globe-{selected}",  # new selection resets rotation; same one keeps it
     )
     return fig
 
@@ -162,7 +175,7 @@ app.layout = html.Div(
     children=[
         html.Div(className="header", children=[
             html.Div([
-                html.H1("Solar Sunlight Forecast"),
+                html.H1("Solar Irradiance Forecast"),
                 html.P("Predicts how much sunlight a place will get each day, using NASA "
                        "satellite data. It also shows how sure it is, and how well it did "
                        "on past days it had not seen.", className="subtitle"),
@@ -173,35 +186,34 @@ app.layout = html.Div(
                         title="Switch between light and dark"),
         ]),
 
-        html.H3("1. Choose a location", className="section-title"),
-        html.P("Click the map, pick a preset city, or type coordinates, then press Get forecast.",
-               className="section-sub"),
-        html.Div(
-            className="card controls",
-            children=[
-                dcc.Dropdown(
-                    id="preset",
-                    options=[{"label": k, "value": k} for k in config.DEMO_LOCATIONS],
-                    placeholder="Preset city…",
-                    className="preset",
-                ),
-                dcc.Input(id="lat", type="number", placeholder="Latitude", debounce=True),
-                dcc.Input(id="lon", type="number", placeholder="Longitude", debounce=True),
-                html.Button("Get forecast", id="go", n_clicks=0),
-            ],
-        ),
+        html.Div(className="layout", children=[
+            # Rail: the question. Stays put while you read the answer.
+            html.Div(className="rail", children=[
+                html.Div(className="card controls", children=[
+                    html.H3("Choose a location", className="section-title"),
+                    html.P("Click the map, pick a preset city, or type coordinates.",
+                           className="section-sub"),
+                    dcc.Dropdown(
+                        id="preset",
+                        options=[{"label": k, "value": k} for k in config.DEMO_LOCATIONS],
+                        placeholder="Preset city…",
+                        className="preset",
+                    ),
+                    html.Div(className="latlon", children=[
+                        dcc.Input(id="lat", type="number", placeholder="Latitude", debounce=True),
+                        dcc.Input(id="lon", type="number", placeholder="Longitude", debounce=True),
+                    ]),
+                    html.Button("Get forecast", id="go", n_clicks=0),
+                ]),
+                html.Div(className="card map-card",
+                         children=dcc.Graph(id="map", figure=make_map_figure(),
+                                            config={"scrollZoom": True,
+                                                    "displayModeBar": False})),
+            ]),
 
-        html.Div(
-            className="card map-card",
-            children=dcc.Graph(id="map", figure=make_map_figure(),
-                               config={"scrollZoom": True}),
-        ),
-
-        # Loading state: first fetch for a new location takes a while
-        dcc.Loading(
-            type="default",
-            children=html.Div(
-                [
+            # Main: the answer. Loading state covers first-time fetches.
+            html.Div(className="main", children=[
+                dcc.Loading(type="default", children=html.Div([
                     html.Div(id="status", className="status"),
                     html.Div(id="metrics"),
                     html.H3("Forecast vs what actually happened", className="section-title"),
@@ -210,40 +222,43 @@ app.layout = html.Div(
                            "where it expects reality to fall about 8 days out of 10. Use the "
                            "buttons to zoom in on the last month, season or year.",
                            className="section-sub"),
-                    html.Div(className="card", children=dcc.Graph(id="forecast-plot", figure=_empty(460),
-                                                     config={"displayModeBar": False})),
-                    html.Div(
-                        className="two-col",
-                        children=[
-                            html.Div([
-                                html.H3("How big were the misses?", className="section-title"),
-                                html.P("Each dot is one day's miss. A dot on the zero line was "
-                                       "spot on, above it the day was sunnier than forecast, "
-                                       "below it cloudier. Tighter clusters mean steadier forecasts.",
-                                       className="section-sub"),
-                                html.Div(className="card", children=dcc.Graph(id="residuals-plot", figure=_empty(340))),
-                            ]),
-                            html.Div([
-                                html.H3("What does the model look at?", className="section-title"),
-                                html.P("The clues that move the forecast most. A longer bar "
-                                       "means a bigger influence on the answer.",
-                                       className="section-sub"),
-                                html.Div(className="card", children=dcc.Graph(id="shap-plot", figure=_empty(340))),
-                            ]),
-                        ],
-                    ),
-                ]
-            ),
-        ),
-
-        html.Details(
-            className="card glossary",
-            children=[
-                html.Summary("What do these terms mean?"),
-                html.Dl([x for term, text in GLOSSARY
-                         for x in (html.Dt(term), html.Dd(text))]),
-            ],
-        ),
+                    html.Div(className="card", children=dcc.Graph(
+                        id="forecast-plot", figure=_empty(460),
+                        config={"displayModeBar": False})),
+                    html.H3("Every test day, by weather type", className="section-title"),
+                    html.P("One cell per day, in order. Long runs of one colour show the "
+                           "seasons; mixed stretches are the days that are hardest to forecast.",
+                           className="section-sub"),
+                    html.Div(className="card", children=dcc.Graph(
+                        id="ribbon-plot", figure=_empty(130),
+                        config={"displayModeBar": False})),
+                    html.Div(className="two-col", children=[
+                        html.Div([
+                            html.H3("How big were the misses?", className="section-title"),
+                            html.P("Each dot is one day's miss. A dot on the zero line was "
+                                   "spot on, above it the day was sunnier than forecast, "
+                                   "below it cloudier. Tighter clusters mean steadier forecasts.",
+                                   className="section-sub"),
+                            html.Div(className="card", children=dcc.Graph(
+                                id="residuals-plot", figure=_empty(340))),
+                        ]),
+                        html.Div([
+                            html.H3("What does the model look at?", className="section-title"),
+                            html.P("The clues that move the forecast most. A longer bar "
+                                   "means a bigger influence on the answer.",
+                                   className="section-sub"),
+                            html.Div(className="card", children=dcc.Graph(
+                                id="shap-plot", figure=_empty(340))),
+                        ]),
+                    ]),
+                ])),
+                html.Details(className="card glossary", children=[
+                    html.Summary("What do these terms mean?"),
+                    html.Dl([x for term, text in GLOSSARY
+                             for x in (html.Dt(term), html.Dd(text))]),
+                ]),
+            ]),
+        ]),
     ],
 )
 
@@ -323,6 +338,36 @@ def _forecast_figure(result, seq=None) -> go.Figure:
     ).update_layout(margin={"l": 55, "r": 15, "t": 60, "b": 110})
 
 
+def _ribbon_figure(result) -> go.Figure:
+    """One row, one cell per test day, coloured by weather type. Gaps stay
+    blank. Legend entries are invisible markers so Plotly draws the key."""
+    regimes = result.regimes.reindex(
+        pd.date_range(result.regimes.index.min(), result.regimes.index.max(), freq="D"))
+    names = list(result.regimes.unique())
+    code = {n: i for i, n in enumerate(names)}
+    n = len(names)
+    z = [[code.get(r) if isinstance(r, str) else None for r in regimes]]
+    colorscale = [stop for i, nm in enumerate(names)
+                  for stop in ([i / n, REGIME_COLORS.get(nm, "#888")],
+                               [(i + 1) / n, REGIME_COLORS.get(nm, "#888")])]
+    fig = go.Figure(go.Heatmap(
+        x=regimes.index, z=z, y=[""], zmin=-0.5, zmax=n - 0.5, colorscale=colorscale,
+        showscale=False, xgap=0, hoverongaps=False,
+        text=[[r if isinstance(r, str) else "" for r in regimes]],
+        hovertemplate="%{x|%b %d, %Y}: %{text}<extra></extra>",
+    ))
+    for nm in names:
+        fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers", name=nm,
+                                 marker={"symbol": "square", "size": 10,
+                                         "color": REGIME_COLORS.get(nm, "#888")}))
+    _themed(fig, height=130, legend=_LEGEND_BELOW)
+    fig.update_layout(margin={"l": 15, "r": 15, "t": 10, "b": 55}, hovermode="closest",
+                      title=None)
+    fig.update_xaxes(showgrid=False)
+    fig.update_yaxes(visible=False)
+    return fig
+
+
 def _residuals_figure(result) -> go.Figure:
     resid = result.test[config.TARGET_COL] - result.forecasts["p50"]
     fig = go.Figure()
@@ -334,7 +379,7 @@ def _residuals_figure(result) -> go.Figure:
         ))
     fig.add_hline(y=0, line_dash="dot", line_color="rgba(128,128,128,0.8)")
     _themed(fig, title="Forecast misses by weather type",
-                   yaxis_title="Actual − forecast (kWh/m²/day)", height=340,
+                   yaxis_title="Actual − forecast", height=340,
                    legend=_LEGEND_BELOW)
     fig.update_layout(margin={"l": 55, "r": 15, "t": 60, "b": 110})
     return fig
@@ -352,9 +397,32 @@ def _shap_figure(result) -> go.Figure:
         hovertemplate="%{y}: %{x:.3f}<br>(%{customdata})<extra></extra>",
     ))
     _themed(fig, title="Biggest influences on the forecast",
-            xaxis_title="Influence on the forecast (kWh/m²/day)", height=340)
+            xaxis_title="Influence (kWh/m²/day)", height=340)
     fig.update_layout(margin={"l": 235, "r": 15, "t": 70, "b": 40})
     return fig
+
+
+def _scale(errors: dict[str, float], lead: str) -> html.Div:
+    """One axis, one dot per model: the comparison you read at a glance."""
+    sc = error_scale(errors)
+    colors = {"LightGBM": P50_COLOR, "LSTM": SEQ_COLOR}
+    kids = [html.Div(className="scale-axis")]
+    for t in sc["ticks"]:
+        kids += [html.Div(className="scale-tick", style={"left": f"{t['pct']:.2f}%"}),
+                 html.Div(f"{t['value']:.2f}", className="scale-tick-label",
+                          style={"left": f"{t['pct']:.2f}%"})]
+    for pt in sc["points"]:
+        size = 16 if pt["name"] == lead else 11
+        kids += [
+            html.Div(className="scale-dot", style={
+                "left": f"{pt['pct']:.2f}%", "width": size, "height": size,
+                "background": colors.get(pt["name"], OTHER_MODEL_COLOR)}),
+            html.Div([pt["name"], html.B(f"{pt['value']:.3f}")],
+                     className=f"scale-label {'above' if pt['above'] else 'below'}"
+                               f"{' lead' if pt['name'] == lead else ''}",
+                     style={"left": f"{pt['pct']:.2f}%"}),
+        ]
+    return html.Div(kids, className="scale")
 
 
 def _metrics_bar(result, seq=None) -> html.Div:
@@ -363,31 +431,25 @@ def _metrics_bar(result, seq=None) -> html.Div:
     coverage = float(((y >= result.forecasts["p10"]) & (y <= result.forecasts["p90"])).mean())
     place = preset_name_for(result.lat, result.lon) or f"{result.lat:.2f}°, {result.lon:.2f}°"
 
-    def tile(label, tech, value, hint, cls=""):
+    def tile(label, tech, value, hint):
         # `tech` is the technical name, kept visible (small) and in the tooltip.
         return html.Div(
             [html.Div(label, className="label"),
              html.Div(value, className="value"),
              html.Div(hint, className="hint"),
              html.Div(tech, className="tech")],
-            className=f"tile {cls}".strip(), title=f"{tech}: {hint}",
+            className="tile", title=f"{tech}: {hint}",
         )
 
-    accuracy = [
-        tile("Overall error", "LightGBM · RMSE", f"{m['gbm_p50_rmse']:.3f}",
-             "Our main model; big misses count extra. Lower is better.", "headline"),
-        tile("Average miss", "LightGBM · MAE", f"{m['gbm_p50_mae']:.3f}",
-             "Plain average of how far off each day was. Lower is better."),
-    ]
+    errors = {"LightGBM": m["gbm_p50_rmse"], "Ridge": m["ridge_rmse"],
+              "Repeat yesterday": m["persistence_rmse"]}
+    detail = []
     note = None
     if seq is not None:
         c = seq_comparison_metrics(y, result.forecasts, seq)
-        accuracy += [
-            tile("LSTM overall error", "LSTM · RMSE", f"{c['seq_rmse']:.3f}",
-                 "A second, neural-network model.", "seq"),
-            tile("LSTM average miss", "LSTM · MAE", f"{c['seq_mae']:.3f}",
-                 "Same measure, for the LSTM.", "seq"),
-        ]
+        errors["LSTM"] = c["seq_rmse"]
+        detail.append(tile("LSTM average miss", "LSTM · MAE", f"{c['seq_mae']:.3f}",
+                           "Same measure as the headline, for the LSTM."))
         how = ("fit just now for this location"
                if result.seq_forecasts is not None else "trained ahead of time")
         note = html.Div(
@@ -397,13 +459,7 @@ def _metrics_bar(result, seq=None) -> html.Div:
             f"model's overall error is {c['gbm_common_rmse']:.3f}.",
             className="note",
         )
-    accuracy += [
-        tile("Basic model error", "Ridge · RMSE", f"{m['ridge_rmse']:.3f}",
-             "A simple statistical model to beat."),
-        tile("Repeat-yesterday error", "Persistence · RMSE", f"{m['persistence_rmse']:.3f}",
-             "The simplest guess: tomorrow equals today."),
-    ]
-    reliability = [
+    detail += [
         tile("Days inside the range", "P10–P90 coverage", f"{coverage:.0%}",
              "The shaded range aims for 80%."),
         tile("Range score", "Pinball loss P10 / P50 / P90",
@@ -413,24 +469,31 @@ def _metrics_bar(result, seq=None) -> html.Div:
         tile("Days tested", "Test days", str(m["test_days"]),
              "Past days the model never saw while learning."),
     ]
-    summary = summary_text(
-        place, m["gbm_p50_mae"], m["persistence_mae"], coverage,
-        float(y.mean()), m["test_days"],
-    )
+    mae, pmae = m["gbm_p50_mae"], m["persistence_mae"]
+    better = (pmae - mae) / pmae if pmae > 0 else 0.0
+    chip = (f"{abs(better):.0%} {'better' if better >= 0 else 'worse'} "
+            f"than repeating yesterday")
+    summary = summary_text(place, mae, pmae, coverage, float(y.mean()), m["test_days"])
     return html.Div([
-        html.Div([html.H3(f"Results for {place}"),
-                  *[html.P(t) for t in summary]], className="card summary"),
-        html.H3("How accurate is the forecast?", className="section-title"),
-        html.P("Errors are in kWh/m² of sunlight per day. Smaller numbers are better. "
-               "The last two tiles are simple guesses the models need to beat.",
+        html.Div([
+            html.Div(f"{place} · average miss", className="hero-place"),
+            html.Div([
+                html.Span([f"{mae:.2f}", html.Span("kWh/m² per day", className="hero-unit")],
+                          className="hero-number", title="LightGBM · MAE"),
+                html.Span(chip, className="chip"),
+            ], className="hero-row"),
+            *[html.P(t, className="hero-copy") for t in summary],
+            html.Div("Overall error by model (RMSE), lower is better", className="scale-title"),
+            _scale(errors, lead="LightGBM"),
+            html.Div("Overall error counts big misses extra. Ridge and repeat-yesterday are "
+                     "simple guesses the models need to beat.", className="note"),
+        ], className="card hero"),
+        html.H3("The numbers behind it", className="section-title"),
+        html.P("Besides a best guess, the model gives a low and a high guess. These tiles "
+               "check whether reality stayed between them and how many days were tested.",
                className="section-sub"),
-        html.Div(accuracy, className="tiles"),
+        html.Div(detail, className="tiles"),
         note,
-        html.H3("Can you trust the shaded range?", className="section-title"),
-        html.P("Besides a best guess, the model gives a low and a high guess. "
-               "These tiles check whether reality stayed between them.",
-               className="section-sub"),
-        html.Div(reliability, className="tiles"),
     ])
 
 
@@ -444,6 +507,7 @@ def _metrics_bar(result, seq=None) -> html.Div:
     Output("residuals-plot", "figure"),
     Output("shap-plot", "figure"),
     Output("map", "figure"),
+    Output("ribbon-plot", "figure"),
     Input("go", "n_clicks"),
     Input("preset", "value"),
     Input("map", "clickData"),
@@ -454,13 +518,13 @@ def _metrics_bar(result, seq=None) -> html.Div:
     prevent_initial_call=True,
 )
 def update(_, preset, map_click, lat, lon):
-    no5 = (dash.no_update,) * 5
+    no6 = (dash.no_update,) * 6
 
     loc = resolve_location(ctx.triggered_id, preset, map_click, lat, lon)
     if loc is None:
-        return "Choose a location to get a forecast.", *no5
+        return "Choose a location to get a forecast.", *no6
     if isinstance(loc, str):  # validation error, already human-readable
-        return loc, *no5
+        return loc, *no6
 
     try:
         # Memo first (revisits are instant); the lock serializes concurrent
@@ -478,14 +542,14 @@ def update(_, preset, map_click, lat, lon):
     except requests.HTTPError as e:
         code = e.response.status_code if e.response is not None else "?"
         return (f"NASA POWER rejected this request (HTTP {code}) — "
-                "try different coordinates.", *no5)
+                "try different coordinates.", *no6)
     except requests.RequestException:
         return ("Could not reach NASA POWER (network problem or timeout). "
-                "Try again in a moment.", *no5)
+                "Try again in a moment.", *no6)
     except ValueError as e:
-        return str(e), *no5
+        return str(e), *no6
     except Exception as e:  # last resort: never show a traceback in a demo
-        return f"Unexpected error ({type(e).__name__}): {e}", *no5
+        return f"Unexpected error ({type(e).__name__}): {e}", *no6
 
     seq = _load_seq(loc, result)
     return (
@@ -495,6 +559,7 @@ def update(_, preset, map_click, lat, lon):
         _residuals_figure(result),
         _shap_figure(result),
         make_map_figure(selected=loc),
+        _ribbon_figure(result),
     )
 
 

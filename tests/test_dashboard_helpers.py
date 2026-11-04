@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 
 from dashboard.helpers import (
-    ResultMemo, align_seq_forecasts, memo_key, plain_feature_name, preset_name_for,
+    ResultMemo, align_seq_forecasts, error_scale, memo_key, plain_feature_name, preset_name_for,
     resolve_location, summary_text, validate_latlon,
 )
 from src.pipeline import MIN_FIT_DAYS, MIN_TEST_DAYS, check_sufficient_history
@@ -139,3 +139,36 @@ def test_summary_text_says_larger_when_model_loses():
     s = summary_text("X", mae=1.2, persistence_mae=1.0, coverage=0.8,
                      mean_irradiance=4.0, test_days=10)
     assert "20% larger" in s[1]
+
+
+# --- model comparison scale ---------------------------------------------------
+def test_error_scale_positions_are_ordered_and_inside_the_axis():
+    sc = error_scale({"LightGBM": 1.022, "Ridge": 1.032, "LSTM": 1.152, "Repeat": 1.228})
+    pcts = [p["pct"] for p in sc["points"]]
+    assert pcts == sorted(pcts)
+    assert all(0 < p < 100 for p in pcts)
+    assert [p["name"] for p in sc["points"]][0] == "LightGBM"
+
+
+def test_error_scale_alternates_label_sides():
+    sc = error_scale({"a": 1.0, "b": 1.1, "c": 1.2})
+    assert [p["above"] for p in sc["points"]] == [True, False, True]
+
+
+def test_error_scale_single_model_does_not_collapse():
+    sc = error_scale({"only": 0.9})
+    assert sc["hi"] > sc["lo"] and 0 < sc["points"][0]["pct"] < 100
+
+
+def test_error_scale_empty_raises():
+    with pytest.raises(ValueError):
+        error_scale({})
+
+
+def test_error_scale_ticks_are_round_and_cover_every_model():
+    sc = error_scale({"a": 1.022, "b": 1.228})
+    step = sc["step"]
+    for tk in sc["ticks"]:
+        assert abs(tk["value"] / step - round(tk["value"] / step)) < 1e-6
+    assert sc["ticks"][0]["pct"] == 0 and abs(sc["ticks"][-1]["pct"] - 100) < 1e-9
+    assert sc["lo"] < 1.022 and sc["hi"] > 1.228

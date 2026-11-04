@@ -1,132 +1,157 @@
 /* Dashboard theme. Dash serves everything in dashboard/assets/ automatically.
-   Colors are tokens on :root, redefined for dark mode; Dash's own components
-   (dropdown, inputs) read the --Dash-* variables, remapped to the same tokens. */
+   Direction: a weather-station logbook (square cards, 2px controls). Warm paper by day, instrument-black by
+   night, one accent (noon amber), borders only for depth. Weather types take
+   their colors from the sky (set in app.py so the charts match).
+   Dash's own components read --Dash-* variables, remapped to the same tokens. */
 :root {
-  --bg: #f6f6f4;
-  --card: #ffffff;
-  --ink: #0b0b0b;
-  --muted: #5d5c58;
-  --line: rgba(0, 0, 0, 0.10);
-  --accent: #2a78d6;
-  --error: #b00020;
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --paper: #f5f3ee;        /* page */
+  --pane: #ffffff;         /* cards, inputs */
+  --ink: #1c222b;          /* text */
+  --graphite: #5b6470;     /* secondary text */
+  --haze: #8b94a0;         /* metadata, hints */
+  --rule: rgba(28, 34, 43, 0.12);        /* hairline */
+  --rule-strong: rgba(28, 34, 43, 0.22);
+  --noon: #e9a93a;         /* the one accent */
+  --noon-wash: #f6e6c0;
+  --on-noon: #1c222b;
+  --error: #b3261e;
   color-scheme: light;
 }
-/* Dark applies when the toggle chose it, or when the OS prefers dark and the
-   toggle has not chosen light (assets/theme.js sets data-theme on <html>). */
 :root[data-theme="dark"] {
-  --bg: #101113;
-  --card: #1a1b1e;
-  --ink: #ececea;
-  --muted: #a1a09b;
-  --line: rgba(255, 255, 255, 0.12);
-  --accent: #5b9bf0;
-  --error: #ff8a9b;
-  --shadow: none;
+  --paper: #0e1116;
+  --pane: #161b22;
+  --ink: #e8e6e1;
+  --graphite: #a3acb8;
+  --haze: #7d8693;
+  --rule: rgba(255, 255, 255, 0.10);
+  --rule-strong: rgba(255, 255, 255, 0.20);
+  --noon-wash: #3a2c10;
+  --error: #ff8f86;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #101113;
-    --card: #1a1b1e;
-    --ink: #ececea;
-    --muted: #a1a09b;
-    --line: rgba(255, 255, 255, 0.12);
-    --accent: #5b9bf0;
-    --error: #ff8a9b;
-    --shadow: none;
+    --paper: #0e1116;
+    --pane: #161b22;
+    --ink: #e8e6e1;
+    --graphite: #a3acb8;
+    --haze: #7d8693;
+    --rule: rgba(255, 255, 255, 0.10);
+    --rule-strong: rgba(255, 255, 255, 0.20);
+    --noon-wash: #3a2c10;
+    --error: #ff8f86;
     color-scheme: dark;
   }
 }
 
 :root {
-  --Dash-Fill-Inverse-Strong: var(--card);
-  --Dash-Fill-Interactive-Strong: var(--accent);
-  --Dash-Fill-Interactive-Weak: color-mix(in srgb, var(--accent) 14%, transparent);
-  --Dash-Fill-Primary-Hover: color-mix(in srgb, var(--accent) 14%, transparent);
-  --Dash-Fill-Primary-Active: color-mix(in srgb, var(--accent) 22%, transparent);
+  --Dash-Fill-Inverse-Strong: var(--pane);
+  --Dash-Fill-Interactive-Strong: var(--noon);
+  --Dash-Fill-Interactive-Weak: color-mix(in srgb, var(--noon) 16%, transparent);
+  --Dash-Fill-Primary-Hover: color-mix(in srgb, var(--noon) 16%, transparent);
+  --Dash-Fill-Primary-Active: color-mix(in srgb, var(--noon) 26%, transparent);
   --Dash-Text-Strong: var(--ink);
   --Dash-Text-Primary: var(--ink);
-  --Dash-Text-Weak: var(--muted);
-  --Dash-Stroke-Strong: var(--line);
-  --Dash-Stroke-Weak: var(--line);
+  --Dash-Text-Weak: var(--graphite);
+  --Dash-Stroke-Strong: var(--rule);
+  --Dash-Stroke-Weak: var(--rule);
 }
 
-html, body { margin: 0; background: var(--bg); color: var(--ink);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+html, body { margin: 0; background: var(--paper); color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased; }
 
-.page { max-width: 1120px; margin: 0 auto; padding: 24px 16px 48px; }
-.page h1 { font-size: 24px; font-weight: 650; margin: 0 0 4px; }
-.subtitle { color: var(--muted); margin: 0 0 16px; font-size: 14px; }
+/* ---- page frame: fixed-width rail for the question, wide column for the answer */
+.page { max-width: 1320px; margin: 0 auto; padding: 24px 20px 56px; }
+.header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 20px; }
+.header h1 { font-size: 24px; font-weight: 600; letter-spacing: -0.02em; margin: 0 0 4px; }
+.subtitle { color: var(--graphite); margin: 0; font-size: 14px; line-height: 1.5; max-width: 640px; text-wrap: pretty; }
 
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-  box-shadow: var(--shadow); padding: 12px 14px; margin-bottom: 14px; }
+.layout { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 24px; align-items: start; }
+.rail { position: sticky; top: 16px; display: flex; flex-direction: column; gap: 12px; }
+.main { min-width: 0; }
+@media (max-width: 980px) {
+  .layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .rail { position: static; }
+}
 
-.controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-.controls .preset { width: 240px; height: 38px; box-sizing: border-box; background: var(--card);
-  color: var(--ink); border: 1px solid var(--line); border-radius: 8px; }
-.controls .dash-input-container { width: 150px; height: 38px; box-sizing: border-box;
-  border: 1px solid var(--line); border-radius: 8px; background: var(--card); overflow: hidden; }
-.controls .dash-input-element { background: var(--card); color: var(--ink); border: 0;
-  font-size: 14px; padding: 0 10px; min-width: 0; }
-.controls .dash-input-stepper { background: transparent; color: var(--muted); border: 0; cursor: pointer; }
-.controls .dash-input-container:focus-within, .controls .preset:focus-visible,
-#go:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-#go { height: 38px; padding: 0 20px; border: 0; border-radius: 8px;
-  background: var(--accent); color: #fff; font-size: 14px; font-weight: 600; cursor: pointer; }
-#go:hover:not(:disabled) { filter: brightness(1.08); }
-#go:disabled { opacity: 0.5; cursor: progress; }
+/* ---- surfaces: borders only, no shadows */
+.card { background: var(--pane); border: 1px solid var(--rule); border-radius: 0; padding: 16px 20px; margin-bottom: 16px; }
+.rail .card { margin-bottom: 0; }
 
-.map-card { padding: 6px; overflow: hidden; }
-
+.section-title { font-size: 16px; font-weight: 600; letter-spacing: -0.01em; margin: 28px 0 2px; text-wrap: balance; }
+.rail .section-title { margin-top: 0; }
+.section-sub { color: var(--graphite); font-size: 14px; line-height: 1.5; margin: 0 0 10px; max-width: 720px; text-wrap: pretty; }
+.note { font-size: 13px; color: var(--graphite); line-height: 1.5; margin: 0 0 12px; max-width: 760px; text-wrap: pretty; }
 .status { color: var(--error); font-weight: 600; padding: 4px 0; }
 .status:empty { display: none; }
 
-.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(185px, 1fr)); gap: 10px; margin-bottom: 8px; }
-.tile { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
-  padding: 10px 12px; box-shadow: var(--shadow); }
-.tile .label { font-size: 12px; color: var(--muted); }
-.tile .value { font-size: 20px; font-weight: 650; margin-top: 2px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.tile.headline { border-color: var(--accent); }
-.tile.seq .value { color: #d6402a; }
-:root[data-theme="dark"] .tile.seq .value { color: #ff7a63; }
-@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .tile.seq .value { color: #ff7a63; } }
-.note { font-size: 12px; color: var(--muted); margin: 0 0 12px 2px; }
+/* ---- location controls (in the rail) */
+.controls { display: flex; flex-direction: column; gap: 10px; padding: 16px; }
+.controls .preset { width: 100%; height: 38px; box-sizing: border-box; background: var(--pane);
+  color: var(--ink); border: 1px solid var(--rule-strong); border-radius: 2px; }
+.latlon { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.controls .dash-input-container { width: 100%; height: 38px; box-sizing: border-box; min-width: 0;
+  border: 1px solid var(--rule-strong); border-radius: 2px; background: var(--pane); overflow: hidden; }
+.controls .dash-input-element { background: var(--pane); color: var(--ink); border: 0;
+  font-size: 14px; padding: 0 8px; min-width: 0; }
+.controls .dash-input-stepper { background: transparent; color: var(--graphite); border: 0; cursor: pointer; }
+.controls .dash-input-container:focus-within, .controls .preset:focus-visible,
+#go:focus-visible { outline: 2px solid var(--noon); outline-offset: 1px; }
+#go { height: 40px; width: 100%; border: 0; border-radius: 2px; background: var(--noon); color: var(--on-noon);
+  font-size: 14px; font-weight: 600; cursor: pointer; transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1), filter 120ms; }
+#go:hover:not(:disabled) { filter: brightness(1.06); }
+#go:active:not(:disabled) { transform: scale(0.98); }
+#go:disabled { opacity: 0.5; cursor: progress; }
+.map-card { padding: 4px; overflow: hidden; }
 
-.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-@media (max-width: 860px) { .two-col { grid-template-columns: 1fr; } }
+/* ---- result: one hero number, then the evidence */
+.hero { padding: 24px 28px; }
+.hero-place { font-size: 13px; color: var(--graphite); }
+.hero-row { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-top: 2px; }
+.hero-number { font-size: 56px; line-height: 1.05; font-weight: 600; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.hero-unit { font-size: 14px; color: var(--graphite); margin-left: 8px; letter-spacing: 0; font-weight: 400; }
+.chip { font-size: 13px; font-weight: 500; padding: 4px 12px; border-radius: 2px; background: var(--noon-wash); color: var(--ink); }
+.hero-copy { margin: 10px 0 0; font-size: 15px; line-height: 1.55; max-width: 720px; text-wrap: pretty; }
+.hero-copy + .hero-copy { margin-top: 6px; color: var(--graphite); }
+
+.scale-title { font-size: 12px; color: var(--graphite); margin: 24px 0 2px; }
+.scale { position: relative; height: 92px; margin: 0 12px; }
+.scale-axis { position: absolute; left: 0; right: 0; top: 46px; height: 1px; background: var(--rule-strong); }
+.scale-tick { position: absolute; top: 42px; width: 1px; height: 9px; background: var(--rule-strong); }
+.scale-tick-label { position: absolute; top: 54px; transform: translateX(-50%); font-size: 11px; color: var(--haze); font-variant-numeric: tabular-nums; }
+.scale-dot { position: absolute; top: 46px; border-radius: 50%; box-sizing: border-box; border: 2px solid var(--pane); transform: translate(-50%, -50%); }
+.scale-label { position: absolute; transform: translateX(-50%); text-align: center; font-size: 12px; line-height: 1.25; white-space: nowrap; color: var(--graphite); }
+.scale-label b { display: block; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.scale-label.lead { color: var(--ink); font-weight: 600; }
+.scale-label.above { top: 2px; }
+.scale-label.below { top: 66px; }
+
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; margin: 0 0 12px; }
+.tile { border: 1px solid var(--rule); border-radius: 0; padding: 12px 14px; background: var(--pane); }
+.tile .label { font-size: 13px; font-weight: 600; }
+.tile .value { font-size: 22px; font-weight: 600; margin-top: 2px; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.tile .hint { font-size: 12px; color: var(--graphite); margin-top: 4px; line-height: 1.4; }
+.tile .tech { font-size: 11px; color: var(--haze); margin-top: 6px; font-family: ui-monospace, Menlo, monospace; }
+
+.two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 1180px) { .two-col { grid-template-columns: minmax(0, 1fr); } }
 .two-col .card { margin-bottom: 0; }
+.two-col .section-title { margin-top: 0; }
 
-/* Plotly draws on transparent backgrounds; recolor its text for the theme. */
-.js-plotly-plot .plotly text { fill: var(--ink) !important; }
-.js-plotly-plot .plotly .hoverlayer text { fill: #f2f2f0 !important; }
-.js-plotly-plot .plotly .gtitle { font-weight: 600; }
-
-.controls .preset .dash-dropdown-placeholder, .controls .preset [class*="placeholder"] { color: var(--muted); }
-
-/* Plain-English layer: headings, summary, tile hints, glossary */
-.section-title { font-size: 17px; font-weight: 650; margin: 22px 0 2px; }
-.section-sub { color: var(--muted); font-size: 14px; line-height: 1.5; margin: 0 0 10px; max-width: 760px; }
-.summary h3 { margin: 0 0 6px; font-size: 18px; }
-.summary p { margin: 0 0 6px; font-size: 15px; line-height: 1.55; }
-.summary p:last-child { margin-bottom: 0; }
-.tile .label { font-size: 13px; font-weight: 600; color: var(--ink); }
-.tile .hint { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
-.tile .tech { font-size: 11px; color: var(--muted); opacity: 0.8; margin-top: 6px; font-family: ui-monospace, Menlo, monospace; }
-.tiles { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
-.glossary { margin-top: 22px; }
+/* ---- glossary */
+.glossary { margin-top: 28px; }
 .glossary summary { cursor: pointer; font-weight: 600; font-size: 15px; }
 .glossary dl { margin: 12px 0 0; display: grid; grid-template-columns: minmax(150px, 220px) 1fr; gap: 8px 16px; }
 .glossary dt { font-weight: 600; font-size: 14px; }
-.glossary dd { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+.glossary dd { margin: 0; color: var(--graphite); font-size: 14px; line-height: 1.5; }
 @media (max-width: 640px) { .glossary dl { grid-template-columns: 1fr; gap: 2px; } .glossary dd { margin-bottom: 8px; } }
 
-/* Header + theme toggle. The label shows the mode a click switches TO. */
-.header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
-.theme-toggle { flex: none; height: 34px; padding: 0 14px; border-radius: 999px; cursor: pointer;
-  border: 1px solid var(--line); background: var(--card); color: var(--ink); font-size: 13px; font-weight: 600; }
-.theme-toggle:hover { border-color: var(--accent); }
-.theme-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* ---- theme toggle: label shows the mode a click switches TO */
+.theme-toggle { flex: none; height: 34px; padding: 0 14px; border-radius: 2px; cursor: pointer;
+  border: 1px solid var(--rule-strong); background: var(--pane); color: var(--ink); font-size: 13px; font-weight: 600; }
+.theme-toggle:hover { border-color: var(--noon); }
+.theme-toggle:focus-visible { outline: 2px solid var(--noon); outline-offset: 2px; }
 .theme-toggle .to-light { display: none; }
 :root[data-theme="dark"] .theme-toggle .to-dark { display: none; }
 :root[data-theme="dark"] .theme-toggle .to-light { display: inline; }
@@ -134,3 +159,15 @@ html, body { margin: 0; background: var(--bg); color: var(--ink);
   :root:not([data-theme="light"]) .theme-toggle .to-dark { display: none; }
   :root:not([data-theme="light"]) .theme-toggle .to-light { display: inline; }
 }
+
+@media (prefers-reduced-motion: reduce) { #go { transition: none; } }
+
+/* Plotly draws on transparent backgrounds; recolor its text for the theme. */
+.js-plotly-plot .plotly text { fill: var(--ink) !important; }
+.js-plotly-plot .plotly .hoverlayer text { fill: #f2f2f0 !important; }
+.js-plotly-plot .plotly .gtitle { font-weight: 600; }
+
+/* Coordinates are typed, not stepped: free the room for the placeholder. */
+.controls .dash-input-stepper { display: none; }
+.controls .preset .dash-dropdown-value { color: var(--ink); }
+.controls .preset .dash-dropdown-placeholder { color: var(--graphite); }
